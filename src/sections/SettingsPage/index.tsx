@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { useI18n } from "@/contexts/I18nContext";
+import { Languages } from "lucide-react";
+import type { AppLanguage } from "@/i18n/translations";
 
 interface UserProfile {
   id: string;
@@ -23,6 +26,7 @@ export const SettingsPage = () => {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [activeTab, setActiveTab] = useState("profile");
+  const { language, setLanguage, languages } = useI18n();
 
   useEffect(() => {
     fetchProfile();
@@ -305,6 +309,27 @@ export const SettingsPage = () => {
                         />
                         <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
                       </label>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 bg-white/5 rounded-lg border border-white/10">
+                      <div className="flex items-center gap-3">
+                        <Languages size={18} className="text-zinc-400" />
+                        <div>
+                          <div className="text-white font-medium">Language</div>
+                          <div className="text-sm text-white/60">Choose your preferred language</div>
+                        </div>
+                      </div>
+                      <select
+                        value={language}
+                        onChange={(e) => setLanguage(e.target.value as AppLanguage)}
+                        className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50 transition-all cursor-pointer"
+                      >
+                        {languages.map((option) => (
+                          <option key={option.code} value={option.code} className="bg-zinc-900 text-zinc-200">
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 

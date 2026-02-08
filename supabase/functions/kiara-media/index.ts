@@ -17,6 +17,13 @@ const MODEL_VERSIONS = {
   QWEN_VL: "lucataco/qwen2-vl-7b-instruct:bf57361c75677fc33d480d0c5f02926e621b2caa2000347cb74aeae9d2ca07ee",
 } as const;
 
+function dataUriToBlob(dataUri: string): Blob {
+  const [header, b64] = dataUri.split(",");
+  const mime = header.match(/:(.*?);/)?.[1] || "image/png";
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return new Blob([bytes], { type: mime });
+}
+
 const allowedOrigins = (Deno.env.get("KIARA_ALLOWED_ORIGINS") ?? "")
   .split(",")
   .map((origin) => origin.trim())
@@ -301,6 +308,61 @@ serve(async (req) => {
 
       return new Response(
         JSON.stringify({ success: true, output: prediction.output }),
+        { status: 200, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    }
+
+    if (action === "inpaint") {
+      const image = body.image;
+      const mask = body.mask;
+      const inpaintPrompt = body.prompt;
+      if (!image || !mask || !inpaintPrompt) {
+        throw new Error("Missing required fields: image, mask, prompt");
+      }
+
+      const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+      if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
+
+      // Convert base64 data URIs to Blobs
+      const imageBlob = dataUriToBlob(image);
+      const maskBlob = dataUriToBlob(mask);
+
+      // Build multipart/form-data for OpenAI Images Edit
+      const formData = new FormData();
+      formData.append("image", imageBlob, "image.png");
+      formData.append("mask", maskBlob, "mask.png");
+      formData.append("prompt", inpaintPrompt);
+      formData.append("model", body.model || "gpt-image-1");
+      if (body.size) formData.append("size", body.size);
+      if (body.quality) formData.append("quality", body.quality);
+
+      console.log(`[kiara-media] inpaint: model=${body.model || "gpt-image-1"}, prompt="${inpaintPrompt.substring(0, 80)}"`);
+
+      const response = await withTimeout(
+        "https://api.openai.com/v1/images/edits",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+          body: formData,
+        },
+        120000
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        console.error("[kiara-media] OpenAI inpaint error:", JSON.stringify(data));
+        throw new Error(data.error?.message || `OpenAI inpaint failed (${response.status})`);
+      }
+
+      // gpt-image-1 returns b64_json, dall-e-2 may return url
+      const outputB64 = data.data?.[0]?.b64_json;
+      const outputUrl = data.data?.[0]?.url;
+      const result = outputB64
+        ? `data:image/png;base64,${outputB64}`
+        : outputUrl || null;
+
+      return new Response(
+        JSON.stringify({ success: true, output: result }),
         { status: 200, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
       );
     }

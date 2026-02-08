@@ -1,4 +1,5 @@
 import { useI18n } from "@/contexts/I18nContext";
+import { Link } from "react-router-dom";
 
 const Icon = ({ name, className = "h-4 w-4 mr-1.5 text-zinc-300" }: { name: string; className?: string }) => {
   switch (name) {
@@ -48,36 +49,36 @@ export const DesktopNavLinks = () => {
 
   return (
     <div className="box-border caret-transparent hidden md:flex gap-2">
-      <a 
-        href="/" 
+      <Link
+        to="/"
         onMouseEnter={() => prefetchRoute('/')}
         className="text-white/80 hover:text-white items-center flex h-[42px] justify-center px-4 py-2 rounded-lg hover:bg-white/10 border border-transparent hover:border-white/20 transition-all duration-200"
       >
         <Icon name="explore" className="h-4 w-4 mr-2" />
         <span className="text-sm font-light">{t("Explore")}</span>
-      </a>
-      <a 
-        href="/assistant" 
+      </Link>
+      <Link
+        to="/assistant"
         onMouseEnter={() => prefetchRoute('/assistant')}
         className="text-white/80 hover:text-white items-center flex h-[42px] justify-center px-4 py-2 rounded-lg hover:bg-white/10 border border-transparent hover:border-white/20 transition-all duration-200"
       >
         <Icon name="chat" className="h-4 w-4 mr-2" />
         <span className="text-sm font-light">{t("Assistant")}</span>
-      </a>
-      <a 
-        href="#" 
+      </Link>
+      <button
+        type="button"
         className="text-white/80 hover:text-white items-center flex h-[42px] justify-center px-4 py-2 rounded-lg hover:bg-white/10 border border-transparent hover:border-white/20 transition-all duration-200"
       >
         <Icon name="tweak" className="h-4 w-4 mr-2" />
         <span className="text-sm font-light">{t("Tweak")}</span>
-      </a>
-      <a 
-        href="#" 
+      </button>
+      <button
+        type="button"
         className="text-white/80 hover:text-white items-center flex h-[42px] justify-center px-4 py-2 rounded-lg hover:bg-white/10 border border-transparent hover:border-white/20 transition-all duration-200"
       >
         <Icon name="chat" className="h-4 w-4 mr-2" />
         <span className="text-sm font-light">{t("Chat")}</span>
-      </a>
+      </button>
     </div>
   );
 };

@@ -7,10 +7,10 @@ interface ProtectedRouteProps {
   fallback?: ReactNode;
 }
 
-// Inline loader - no full screen blocking
+// Inline loader - dark background, no white flash
 const InlineAuthCheck = () => (
-  <div className="flex-1 flex items-center justify-center min-h-[50vh]">
-    <div className="w-8 h-8 border-2 border-white/10 border-t-white rounded-full animate-spin" />
+  <div className="flex-1 flex items-center justify-center min-h-[50vh] bg-black">
+    <div className="w-6 h-6 border-2 border-white/10 border-t-white/40 rounded-full animate-spin" />
   </div>
 );
 

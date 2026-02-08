@@ -10,6 +10,29 @@ import infinityAnimation from "@/assets/animations/infinity-loop.json";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { useSnapScroll } from "@/hooks/useSnapScroll";
 
+// 3D ASCII Infinity Logo Component
+const ASCIILogo = ({ className = "" }: { className?: string }) => (
+  <pre 
+    className={`font-mono text-[10px] md:text-xs leading-[0.9] tracking-tighter whitespace-pre select-none ${className}`}
+    style={{ 
+      fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+    }}
+  >
+{`         ▄▄▄▄▄▄▄▄▄▄▄         
+      ▄▄▀▀▀       ▀▀▄▄▄      
+    ▄▀▀    ▄▄▄▄▄▄     ▀▄▄    
+   ▄▀    ▄▀▀    ▀▀▄▄    ▀▄   
+  ▐▌    ▐▌          ▀▄   ▐▌  
+  ▐▌    ▐▌   ▄▄▄▄    ▐▌   ▐▌ 
+  ▐▌    ▐▌  ▐▌   ▀▄▄▄▀   ▄▀  
+  ▐▌    ▐▌  ▐▌          ▄▀   
+   ▀▄   ▐▌   ▀▄▄▄▄▄▄▄▄▄▀▀    
+    ▀▄▄  ▀▄▄       ▄▄▄▀▀     
+      ▀▀▄▄ ▀▀▀▀▀▀▀▀          
+         ▀▀▀▀▀▀▀▀▀▀▀         `}
+  </pre>
+);
+
 const HERO_PHRASES = [
   "How can I help you?",
   "Ready to master AI?",
@@ -41,11 +64,12 @@ const RotatingPhrase = () => {
 
   return (
     <span
-      className="transition-all duration-700 ease-in-out inline-block bg-gradient-to-b from-white via-white/90 to-white/50 bg-clip-text text-transparent drop-shadow-sm"
+      className="transition-all duration-700 ease-out inline-block"
       style={{
         opacity: phase === "out" ? 0 : phase === "in" ? 0 : 1,
-        transform: phase === "out" ? "translateY(-10px) scale(0.95)" : phase === "in" ? "translateY(10px) scale(0.95)" : "translateY(0) scale(1)",
-        filter: phase === "visible" ? "blur(0px)" : "blur(4px)",
+        transform: phase === "out" ? "translateY(-12px) scale(0.95)" : phase === "in" ? "translateY(12px) scale(0.95)" : "translateY(0) scale(1)",
+        filter: phase === "visible" ? "blur(0px)" : "blur(6px)",
+        textShadow: "0 0 30px rgba(255,255,255,0.2), 0 0 60px rgba(255,255,255,0.1)",
       }}
     >
       {HERO_PHRASES[index]}
@@ -64,58 +88,397 @@ interface ChatAreaProps {
 }
 
 const ConfigModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+  const [activeTab, setActiveTab] = useState<"general" | "model" | "memory" | "tools">("general");
+  const [settings, setSettings] = useState({
+    model: "grok-4-fast",
+    temperature: 0.7,
+    maxTokens: 4096,
+    webSearch: true,
+    memoryEnabled: true,
+    autoSave: true,
+    streamResponse: true,
+    codeHighlight: true,
+    imageGeneration: true,
+    knowledgeBase: true,
+    reasoningMode: false,
+  });
+
   if (!isOpen) return null;
 
+  const tabs = [
+    { id: "general", label: "General", icon: Settings },
+    { id: "model", label: "Model", icon: Infinity },
+    { id: "memory", label: "Memory", icon: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> },
+    { id: "tools", label: "Tools", icon: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a7 7 0 10-14.8 0"/></svg> },
+  ] as const;
+
   return (
-    <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-lg bg-[#0a0a0a] border border-white/10 rounded-2xl shadow-2xl p-6 relative animate-in zoom-in-95 duration-200">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"
-        >
-          <X size={20} />
-        </button>
-
-        <h2 className="text-xl font-bold text-white mb-6">Configuration</h2>
-
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Custom Instructions</label>
-            <textarea
-              className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-sm text-zinc-300 focus:outline-none focus:border-white/20 resize-none placeholder:text-zinc-700"
-              placeholder="How should the AI behave? (e.g. 'Be concise', 'Act as a senior engineer')"
-            />
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-xl" onClick={onClose} />
+      
+      {/* Modal Container */}
+      <div className="relative w-full max-w-2xl max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-300">
+        {/* Glass Background */}
+        <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-white/[0.06] to-white/[0.02]" />
+        <div className="absolute inset-0 rounded-3xl backdrop-blur-2xl" />
+        <div className="absolute inset-0 rounded-3xl bg-black/50" />
+        <div className="absolute inset-0 rounded-3xl border border-white/[0.06]" />
+        <div className="absolute inset-0 rounded-3xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)]" />
+        
+        {/* Content */}
+        <div className="relative flex flex-col max-h-[85vh]">
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-5 border-b border-white/[0.04]">
+            <div>
+              <h2 className="text-lg font-semibold text-white/90">Assistant Settings</h2>
+              <p className="text-xs text-white/40 mt-0.5">Configure your AI experience</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-all duration-200"
+            >
+              <X size={18} />
+            </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Model</label>
-              <div className="w-full h-10 bg-black border border-white/10 rounded-lg flex items-center px-3 text-sm text-zinc-400 justify-between cursor-pointer hover:border-white/20">
-                <span>Grok-Beta</span>
-                <ChevronDown size={14} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Creativity</label>
-              <div className="w-full h-10 bg-black border border-white/10 rounded-lg flex items-center px-3 relative">
-                <div className="absolute left-1 right-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
-                  <div className="w-[70%] h-full bg-white/20"></div>
+          {/* Tabs */}
+          <div className="flex items-center gap-1 px-6 py-3 border-b border-white/[0.04] overflow-x-auto scrollbar-hide">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+                    isActive 
+                      ? "bg-white/[0.08] text-white border border-white/[0.08]" 
+                      : "text-white/40 hover:text-white/60 hover:bg-white/[0.03]"
+                  }`}
+                >
+                  <Icon />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+            {/* General Tab */}
+            {activeTab === "general" && (
+              <div className="space-y-6">
+                {/* Custom Instructions */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-white/80">Custom Instructions</label>
+                    <span className="text-xs text-white/30">Optional</span>
+                  </div>
+                  <textarea
+                    className="w-full h-28 bg-black/30 border border-white/[0.06] rounded-xl p-4 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-white/20 focus:bg-black/40 resize-none transition-all duration-200"
+                    placeholder="How should Kiara behave? For example: 'Be concise and direct', 'Always provide code examples', or 'Act as a creative director'..."
+                  />
+                  <p className="text-xs text-white/30">These instructions will be applied to every conversation</p>
                 </div>
-                <div className="w-3 h-3 bg-white rounded-full absolute left-[70%] shadow-lg cursor-pointer hover:scale-110 transition-transform"></div>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <div className="mt-8 pt-6 border-t border-white/5 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-6 py-2 bg-white text-black text-sm font-bold rounded-full hover:bg-zinc-200 transition-colors"
-          >
-            Save Changes
-          </button>
+                {/* Toggles Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <ToggleSetting
+                    label="Stream Responses"
+                    description="Show AI responses in real-time"
+                    checked={settings.streamResponse}
+                    onChange={() => setSettings(s => ({ ...s, streamResponse: !s.streamResponse }))}
+                  />
+                  <ToggleSetting
+                    label="Auto-Save Chats"
+                    description="Automatically save conversations"
+                    checked={settings.autoSave}
+                    onChange={() => setSettings(s => ({ ...s, autoSave: !s.autoSave }))}
+                  />
+                  <ToggleSetting
+                    label="Code Highlighting"
+                    description="Syntax highlight code blocks"
+                    checked={settings.codeHighlight}
+                    onChange={() => setSettings(s => ({ ...s, codeHighlight: !s.codeHighlight }))}
+                  />
+                  <ToggleSetting
+                    label="Knowledge Base"
+                    description="Access internal knowledge"
+                    checked={settings.knowledgeBase}
+                    onChange={() => setSettings(s => ({ ...s, knowledgeBase: !s.knowledgeBase }))}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Model Tab */}
+            {activeTab === "model" && (
+              <div className="space-y-6">
+                {/* Model Selector */}
+                <div className="space-y-3">
+                  <label className="text-sm font-medium text-white/80">AI Model</label>
+                  <div className="space-y-2">
+                    {[
+                      { id: "grok-4-fast", name: "Grok 4 Fast", desc: "Fast responses, great for most tasks", tag: "Default" },
+                      { id: "grok-4", name: "Grok 4", desc: "Best quality, slower responses", tag: "Pro" },
+                      { id: "grok-reasoning", name: "Grok Reasoning", desc: "Step-by-step thinking for complex problems", tag: "Beta" },
+                    ].map((model) => (
+                      <button
+                        key={model.id}
+                        onClick={() => setSettings(s => ({ ...s, model: model.id }))}
+                        className={`w-full flex items-center gap-4 p-4 rounded-xl border transition-all duration-200 text-left ${
+                          settings.model === model.id
+                            ? "bg-white/[0.06] border-white/20"
+                            : "bg-transparent border-white/[0.04] hover:border-white/[0.08] hover:bg-white/[0.02]"
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                          settings.model === model.id ? "border-white" : "border-white/20"
+                        }`}>
+                          {settings.model === model.id && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-white/90">{model.name}</span>
+                            <span className="px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-white/[0.06] text-white/50 rounded">{model.tag}</span>
+                          </div>
+                          <p className="text-xs text-white/40 mt-0.5">{model.desc}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sliders */}
+                <div className="space-y-5">
+                  <SliderSetting
+                    label="Temperature"
+                    value={settings.temperature}
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    onChange={(v) => setSettings(s => ({ ...s, temperature: v }))}
+                    description="Lower = more focused, Higher = more creative"
+                  />
+                  <SliderSetting
+                    label="Max Tokens"
+                    value={settings.maxTokens}
+                    min={512}
+                    max={8192}
+                    step={512}
+                    onChange={(v) => setSettings(s => ({ ...s, maxTokens: v }))}
+                    description="Maximum response length"
+                  />
+                </div>
+
+                {/* Reasoning Mode */}
+                <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.04]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-white/80">Reasoning Mode</span>
+                        <span className="px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-purple-500/20 text-purple-300/70 rounded">Beta</span>
+                      </div>
+                      <p className="text-xs text-white/40 mt-1">Show step-by-step thinking process</p>
+                    </div>
+                    <Switch 
+                      checked={settings.reasoningMode}
+                      onChange={() => setSettings(s => ({ ...s, reasoningMode: !s.reasoningMode }))}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Memory Tab */}
+            {activeTab === "memory" && (
+              <div className="space-y-6">
+                <ToggleSetting
+                  label="Enable Memory"
+                  description="Kiara remembers facts about you across conversations"
+                  checked={settings.memoryEnabled}
+                  onChange={() => setSettings(s => ({ ...s, memoryEnabled: !s.memoryEnabled }))}
+                  large
+                />
+
+                {settings.memoryEnabled && (
+                  <>
+                    <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.04]">
+                      <h4 className="text-sm font-medium text-white/80 mb-2">What Kiara knows about you</h4>
+                      <div className="space-y-2">
+                        {[
+                          "Prefers concise responses",
+                          "Works with React/TypeScript",
+                          "Interested in AI image generation",
+                        ].map((fact, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm text-white/50">
+                            <div className="w-1 h-1 rounded-full bg-white/30" />
+                            <span>{fact}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button className="mt-3 text-xs text-white/40 hover:text-white/60 transition-colors">
+                        Manage memories →
+                      </button>
+                    </div>
+
+                    <button className="w-full py-3 rounded-xl border border-white/[0.06] text-sm text-white/50 hover:text-red-400 hover:border-red-500/20 hover:bg-red-500/5 transition-all duration-200">
+                      Clear All Memories
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Tools Tab */}
+            {activeTab === "tools" && (
+              <div className="space-y-4">
+                <ToggleSetting
+                  label="Web Search"
+                  description="Allow Kiara to search the internet for current information"
+                  checked={settings.webSearch}
+                  onChange={() => setSettings(s => ({ ...s, webSearch: !s.webSearch }))}
+                  large
+                />
+                <ToggleSetting
+                  label="Image Generation"
+                  description="Enable AI image creation with Kiara Vision"
+                  checked={settings.imageGeneration}
+                  onChange={() => setSettings(s => ({ ...s, imageGeneration: !s.imageGeneration }))}
+                  large
+                />
+                <ToggleSetting
+                  label="Code Interpreter"
+                  description="Run and analyze code in conversations"
+                  checked={true}
+                  onChange={() => {}}
+                  large
+                  disabled
+                />
+                <ToggleSetting
+                  label="File Analysis"
+                  description="Upload and analyze documents, images, and files"
+                  checked={true}
+                  onChange={() => {}}
+                  large
+                  disabled
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between px-6 py-4 border-t border-white/[0.04] bg-white/[0.02]">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-white/50 hover:text-white/70 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onClose}
+              className="px-5 py-2 bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.08] text-white/90 text-sm font-medium rounded-xl transition-all duration-200 hover:scale-[1.02]"
+            >
+              Save Settings
+            </button>
+          </div>
         </div>
       </div>
+    </div>
+  );
+};
+
+// Toggle Component
+const ToggleSetting = ({ 
+  label, 
+  description, 
+  checked, 
+  onChange,
+  large = false,
+  disabled = false
+}: { 
+  label: string; 
+  description: string; 
+  checked: boolean; 
+  onChange: () => void;
+  large?: boolean;
+  disabled?: boolean;
+}) => (
+  <div className={`flex items-start gap-4 ${large ? "p-4 rounded-xl bg-white/[0.03] border border-white/[0.04]" : ""}`}>
+    <div className="flex-1">
+      <div className="flex items-center gap-2">
+        <span className={`font-medium text-white/80 ${large ? "text-sm" : "text-sm"}`}>{label}</span>
+        {disabled && <span className="px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-white/[0.06] text-white/40 rounded">Always On</span>}
+      </div>
+      <p className={`text-white/40 mt-0.5 ${large ? "text-xs" : "text-xs"}`}>{description}</p>
+    </div>
+    <Switch checked={checked} onChange={onChange} disabled={disabled} />
+  </div>
+);
+
+// Switch Component
+const Switch = ({ checked, onChange, disabled = false }: { checked: boolean; onChange: () => void; disabled?: boolean }) => (
+  <button
+    onClick={onChange}
+    disabled={disabled}
+    className={`relative w-11 h-6 rounded-full transition-all duration-200 ${
+      checked ? "bg-white/20" : "bg-white/[0.06]"
+    } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+  >
+    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-all duration-200 ${
+      checked ? "left-6" : "left-1"
+    }`} />
+  </button>
+);
+
+// Slider Component
+const SliderSetting = ({ 
+  label, 
+  value, 
+  min, 
+  max, 
+  step, 
+  onChange,
+  description
+}: { 
+  label: string; 
+  value: number; 
+  min: number; 
+  max: number; 
+  step: number; 
+  onChange: (value: number) => void;
+  description: string;
+}) => {
+  const percentage = ((value - min) / (max - min)) * 100;
+  
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-medium text-white/80">{label}</label>
+        <span className="text-sm text-white/50 font-mono">{value}</span>
+      </div>
+      <div className="relative h-6 flex items-center">
+        <div className="absolute inset-x-0 h-1.5 bg-white/[0.06] rounded-full" />
+        <div 
+          className="absolute h-1.5 bg-white/20 rounded-full transition-all duration-100"
+          style={{ width: `${percentage}%` }}
+        />
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        />
+        <div 
+          className="absolute w-4 h-4 bg-white rounded-full shadow-lg transition-all duration-100 pointer-events-none"
+          style={{ left: `calc(${percentage}% - 8px)` }}
+        />
+      </div>
+      <p className="text-xs text-white/30">{description}</p>
     </div>
   );
 };
@@ -256,16 +619,14 @@ export const ChatArea = ({
   const sendLockRef = useRef(false);
 
   // ── Render loop ──
-  // Writes streamed content directly into the messages array.
-  // No separate "streamingText" state — content always lives in msg.content.
-  // This eliminates the race condition where clearing streamingText happens
-  // before the parent's messages prop updates.
+  // Writes streamed content into the messages array at ~12fps.
+  // Content always lives in msg.content — no separate state to sync.
   const startRenderLoop = useCallback(() => {
     if (renderIntervalRef.current) return;
 
     let lastRendered = "";
     let lastTime = 0;
-    const INTERVAL = 80; // ~12fps
+    const INTERVAL = 60; // ~16fps — slightly faster for smoother feel
 
     const tick = (now: number) => {
       renderIntervalRef.current = requestAnimationFrame(tick);
@@ -280,7 +641,6 @@ export const ChatArea = ({
       const streamId = currentStreamIdRef.current;
       if (!streamId) return;
 
-      // Update the message content directly in the messages array
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === streamId ? { ...msg, content: current } : msg
@@ -297,6 +657,24 @@ export const ChatArea = ({
       renderIntervalRef.current = null;
     }
   }, []);
+
+  // ── Flush: synchronously push whatever is in streamingContentRef into state ──
+  // Called right before stopping the render loop on completion, so no content
+  // is left in the ref but not yet rendered.
+  const flushRenderLoop = useCallback(
+    (streamId: string, finalContent: string) => {
+      stopRenderLoop();
+      // Synchronously write the FINAL content into messages.
+      // This eliminates the gap where stale partial content was visible
+      // while awaiting the DB save.
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === streamId ? { ...msg, content: finalContent } : msg
+        )
+      );
+    },
+    [setMessages, stopRenderLoop]
+  );
 
   // Merge callback-ref from useSnapScroll with our local ref
   const scrollRef = useCallback((node: HTMLDivElement | null) => {
@@ -397,41 +775,45 @@ export const ChatArea = ({
         },
         onComplete: async (fullText) => {
           if (currentStreamIdRef.current !== aiMsgId) return;
-          stopRenderLoop();
-          const finalContent = fullText || streamingContentRef.current || "";
-          console.log(`[complete] raw=${finalContent.length} chars, first200: "${finalContent.substring(0, 200)}"`);
 
+          const finalContent = fullText || streamingContentRef.current || "";
+
+          // ─── CRITICAL FIX ───
+          // 1. Flush final content into state IMMEDIATELY (synchronous).
+          //    This replaces whatever partial content the render loop last wrote.
+          //    Previously, stopRenderLoop() + await DB save created a visible gap
+          //    where stale/partial content was displayed.
+          flushRenderLoop(aiMsgId, finalContent);
+
+          // 2. Clear streaming state in the SAME tick as the content update.
+          //    React batches these setState calls, so the UI transitions from
+          //    "streaming with partial content" → "done with full content"
+          //    in a single render. No flash frame.
+          setStreamingMessageId(null);
+          setIsLoading(false);
+          currentStreamIdRef.current = null;
+          sendLockRef.current = false;
+          isStreamingRef.current = false;
+
+          // 3. Show completion animation
+          setJustFinishedId(aiMsgId);
+          setTimeout(() => setJustFinishedId(null), 2500);
+          setTimeout(() => textareaRef.current?.focus(), 100);
+
+          // 4. DB save happens AFTER UI is already correct — fire and forget.
+          //    The user sees the complete response immediately regardless of
+          //    network latency to Supabase.
           const finalAiMsg: Message = {
             id: aiMsgId,
             role: "assistant",
             content: finalContent,
           };
 
-          // Save to DB first
-          try {
-            await onSaveMessage(activeConversationId, finalAiMsg);
-            refreshConversations();
-          } catch (error) {
-            console.error("Failed to save AI message:", error);
-          }
-
-          // Final update — content goes into messages array (same place it
-          // was during streaming). No state transition, no race condition.
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === aiMsgId
-                ? { ...msg, content: finalContent }
-                : msg
-            )
-          );
-          setIsLoading(false);
-          setStreamingMessageId(null);
-          currentStreamIdRef.current = null;
-          sendLockRef.current = false;
-          isStreamingRef.current = false;
-          setJustFinishedId(aiMsgId);
-          setTimeout(() => setJustFinishedId(null), 2500);
-          setTimeout(() => textareaRef.current?.focus(), 100);
+          onSaveMessage(activeConversationId, finalAiMsg)
+            .then(() => refreshConversations())
+            .catch((error) => {
+              console.error("Failed to save AI message:", error);
+            });
         },
         onError: (error) => {
           if (currentStreamIdRef.current !== aiMsgId) return;
@@ -489,18 +871,63 @@ export const ChatArea = ({
   const removeAttachment = (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id));
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-black relative font-sans overflow-hidden selection:bg-white/20 selection:text-white">
+    <div data-no-translate="true" className="flex-1 flex flex-col h-full bg-black relative font-sans overflow-hidden selection:bg-white/20 selection:text-white">
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 relative z-0 scrollbar-thin scrollbar-thumb-white/5 scrollbar-track-transparent">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center select-none">
-            <div className="flex flex-col items-center gap-4 pb-32">
-              <div className="w-32 h-32 flex items-center justify-center">
-                <span className="text-7xl text-white/20 animate-pulse select-none" style={{ fontFamily: 'serif' }}>&#8734;</span>
+            <div className="flex flex-col items-center gap-8 pb-20">
+              {/* 3D ASCII Infinity Logo */}
+              <div className="relative">
+                {/* Glow layers */}
+                <div className="absolute inset-0 blur-3xl opacity-30">
+                  <ASCIILogo className="text-white/40" />
+                </div>
+                <div className="absolute inset-0 blur-xl opacity-50">
+                  <ASCIILogo className="text-white/60" />
+                </div>
+                {/* Main logo with 3D shadow effect */}
+                <div 
+                  className="relative"
+                  style={{
+                    textShadow: `
+                      0 0 20px rgba(255,255,255,0.3),
+                      0 0 40px rgba(255,255,255,0.2),
+                      0 0 60px rgba(255,255,255,0.1),
+                      0 4px 8px rgba(0,0,0,0.5),
+                      0 8px 16px rgba(0,0,0,0.4),
+                      0 16px 32px rgba(0,0,0,0.3)
+                    `,
+                  }}
+                >
+                  <ASCIILogo className="text-white/90" />
+                </div>
               </div>
-              <div className="text-white font-bold text-2xl md:text-4xl tracking-tight text-center h-12 flex items-center justify-center drop-shadow-[0_2px_20px_rgba(0,0,0,0.8)]">
-                <RotatingPhrase />
+              
+              {/* Brand Name with 3D styling */}
+              <div className="text-center space-y-3">
+                <h1 
+                  className="text-3xl md:text-5xl font-bold tracking-tight"
+                  style={{
+                    background: 'linear-gradient(180deg, #ffffff 0%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0.4) 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    textShadow: '0 2px 20px rgba(255,255,255,0.1)',
+                  }}
+                >
+                  AI Influencerbook
+                </h1>
+                
+                {/* Rotating phrase */}
+                <div 
+                  className="text-lg md:text-xl text-white/60 font-light tracking-wide"
+                  style={{
+                    textShadow: '0 2px 10px rgba(0,0,0,0.5)',
+                  }}
+                >
+                  <RotatingPhrase />
+                </div>
               </div>
             </div>
           </div>
@@ -555,63 +982,130 @@ export const ChatArea = ({
             </button>
           </div>
         )}
-        <div className="max-w-3xl mx-auto px-6">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <form onSubmit={handleSubmit} className="relative group">
+            {/* Attachment Previews - Glass Cards */}
             {attachments.length > 0 && (
-              <div className="absolute bottom-full left-0 mb-6 flex gap-3 px-1 overflow-x-auto w-full pb-2 scrollbar-none">
+              <div className="absolute bottom-full left-0 mb-4 flex gap-3 px-1 overflow-x-auto w-full pb-2 scrollbar-hide">
                 {attachments.map((att) => (
-                  <div key={att.id} className="relative group/att w-20 h-20 rounded-xl overflow-hidden border border-white/10 shadow-lg cursor-pointer">
-                    <img src={`data:${att.mimeType};base64,${att.data}`} alt="preview" className="w-full h-full object-cover opacity-80 group-hover/att:opacity-100 transition-opacity" />
-                    <button type="button" onClick={() => removeAttachment(att.id)} className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover/att:opacity-100 transition-opacity backdrop-blur-sm">
-                      <X size={16} className="text-white" />
+                  <div key={att.id} className="relative group/att flex-shrink-0 w-24 h-24 rounded-2xl overflow-hidden border border-white/20 shadow-2xl cursor-pointer ring-1 ring-white/10 backdrop-blur-md bg-black/40">
+                    <img src={`data:${att.mimeType};base64,${att.data}`} alt="preview" className="w-full h-full object-cover opacity-90 group-hover/att:opacity-100 transition-all duration-300 scale-105 group-hover/att:scale-110" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60" />
+                    <button type="button" onClick={() => removeAttachment(att.id)} className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/50 backdrop-blur-md border border-white/20 flex items-center justify-center opacity-0 group-hover/att:opacity-100 transition-all duration-200 hover:bg-red-500/80 hover:border-red-400/50 hover:scale-110">
+                      <X size={12} className="text-white" />
                     </button>
                   </div>
                 ))}
               </div>
             )}
 
-            <div className="bg-black rounded-[32px] p-2 pl-4 pr-2 border border-white/10 shadow-[0_0_20px_-5px_rgba(255,255,255,0.05)] transition-all duration-300 focus-within:border-white/20 focus-within:shadow-[0_0_25px_-5px_rgba(255,255,255,0.1)] hover:border-white/15">
-              <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Type a message..." rows={1} className="w-full bg-transparent text-gray-200 text-[15px] px-2 py-3 outline-none placeholder:text-[#444] placeholder:text-xs placeholder:font-medium placeholder:tracking-wider font-light resize-none overflow-y-auto [&::-webkit-scrollbar]:hidden leading-relaxed" style={{ minHeight: "48px", maxHeight: "200px" }} autoFocus />
-              <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*" multiple className="hidden" />
+            {/* Main Glass Input Container */}
+            <div className="relative">
+              {/* Animated gradient border glow */}
+              <div className="absolute -inset-[1px] rounded-3xl bg-gradient-to-r from-purple-500/20 via-pink-500/20 via-blue-500/20 to-purple-500/20 opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-sm" />
+              
+              {/* Glass container */}
+              <div className="relative rounded-3xl overflow-hidden">
+                {/* Background layers */}
+                <div className="absolute inset-0 bg-gradient-to-b from-white/[0.08] to-white/[0.02]" />
+                <div className="absolute inset-0 backdrop-blur-xl" />
+                <div className="absolute inset-0 bg-black/40" />
+                
+                {/* Border */}
+                <div className="absolute inset-0 rounded-3xl border border-white/[0.08] group-focus-within:border-white/[0.15] transition-colors duration-300" />
+                
+                {/* Inner shadow for depth */}
+                <div className="absolute inset-0 rounded-3xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.05),inset_0_-1px_1px_rgba(0,0,0,0.2)]" />
+                
+                {/* Content */}
+                <div className="relative p-1">
+                  {/* Textarea */}
+                  <textarea 
+                    ref={textareaRef} 
+                    value={input} 
+                    onChange={(e) => setInput(e.target.value)} 
+                    onKeyDown={handleKeyDown} 
+                    placeholder="Ask Kiara anything..." 
+                    rows={1} 
+                    className="w-full bg-transparent text-white/90 text-[15px] px-4 py-4 outline-none placeholder:text-white/30 placeholder:font-light resize-none overflow-y-auto scrollbar-hide leading-relaxed"
+                    style={{ minHeight: "56px", maxHeight: "200px" }} 
+                    autoFocus 
+                  />
+                  <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*" multiple className="hidden" />
 
-              <div className="flex items-center justify-between pt-2 pb-1 px-1 border-t border-white/5 mt-1">
-                <div className="flex items-center gap-1">
-                  {([
-                    { id: "plus", icon: Plus, action: () => setActiveTool(activeTool === "plus" ? null : "plus") },
-                    { id: "attach", icon: Paperclip, action: () => { fileInputRef.current?.click(); } },
-                    { id: "mic", icon: Mic, action: () => setActiveTool(activeTool === "mic" ? null : "mic") },
-                    { id: "web", icon: Globe, action: () => setActiveTool(activeTool === "web" ? null : "web") },
-                  ] as const).map(({ id, icon: Icon, action }) => {
-                    const isOn = activeTool === id;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={action}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 ${isOn ? "bg-white/10 text-white" : "text-zinc-500 hover:bg-white/10 hover:text-white"}`}
+                  {/* Toolbar */}
+                  <div className="flex items-center justify-between px-2 pb-2">
+                    {/* Left Tools */}
+                    <div className="flex items-center gap-1">
+                      {([
+                        { id: "plus", icon: Plus, label: "Tools", color: "from-purple-400 to-pink-400", action: () => setActiveTool(activeTool === "plus" ? null : "plus") },
+                        { id: "attach", icon: Paperclip, label: "Attach", color: "from-blue-400 to-cyan-400", action: () => { fileInputRef.current?.click(); } },
+                        { id: "mic", icon: Mic, label: "Voice", color: "from-emerald-400 to-teal-400", action: () => setActiveTool(activeTool === "mic" ? null : "mic") },
+                        { id: "web", icon: Globe, label: "Web", color: "from-orange-400 to-amber-400", action: () => setActiveTool(activeTool === "web" ? null : "web") },
+                      ] as const).map(({ id, icon: Icon, label, color, action }) => {
+                        const isOn = activeTool === id;
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={action}
+                            className="group/btn relative"
+                          >
+                            {/* Subtle indicator when active */}
+                            {isOn && (
+                              <div className="absolute inset-0 rounded-xl bg-white/[0.08] border border-white/20" />
+                            )}
+                            <div className={`relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 ${isOn ? "text-white/90" : "text-white/40 hover:text-white/70 hover:bg-white/[0.05]"}`}>
+                              <Icon size={17} strokeWidth={1.5} />
+                            </div>
+                            {/* Tooltip */}
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black/80 backdrop-blur-md border border-white/10 rounded-lg text-[10px] text-white/70 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
+                              {label}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Right Actions */}
+                    <div className="flex items-center gap-2">
+                      {/* Settings */}
+                      <button 
+                        type="button" 
+                        onClick={() => setShowConfig(true)} 
+                        className="w-9 h-9 rounded-xl flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all duration-300 group/cfg"
                       >
-                        <Icon size={16} />
+                        <Settings size={17} strokeWidth={1.5} className="transition-transform duration-700 ease-out group-hover/cfg:rotate-90" />
                       </button>
-                    );
-                  })}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setShowConfig(true)} className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-500 hover:text-white hover:bg-white/10 transition-all duration-200 group/cfg">
-                    <Settings size={16} className="transition-transform duration-500 ease-in-out group-hover/cfg:rotate-180" />
-                  </button>
-                  <button type="submit" disabled={(!input.trim() && attachments.length === 0) || isLoading} className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${input.trim() || attachments.length > 0 ? "bg-white text-black hover:bg-gray-200 hover:scale-105" : "bg-[#222] text-[#444] cursor-not-allowed"}`}>
-                    {isLoading ? (
-                      <div className="w-3.5 h-3.5 border-2 border-black/20 border-t-black rounded-full animate-spin"></div>
-                    ) : (
-                      <ArrowUpRight size={18} strokeWidth={2.5} />
-                    )}
-                  </button>
+                      
+                      {/* Send Button - Soft Elegant Style */}
+                      <button 
+                        type="submit" 
+                        disabled={(!input.trim() && attachments.length === 0) || isLoading}
+                        className="group/send relative disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        {/* Soft glow effect - only when has content */}
+                        <div className={`absolute inset-0 rounded-xl bg-white/20 blur-md transition-opacity duration-300 ${input.trim() || attachments.length > 0 ? "opacity-0 group-hover/send:opacity-100" : "opacity-0"}`} />
+                        
+                        <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 border ${input.trim() || attachments.length > 0 ? "bg-white/[0.08] border-white/20 text-white/90 group-hover/send:bg-white/[0.15] group-hover/send:border-white/30 group-hover/send:text-white group-hover/send:scale-105" : "bg-transparent border-white/[0.06] text-white/20"}`}>
+                          {isLoading ? (
+                            <div className="w-4 h-4 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+                          ) : (
+                            <ArrowUpRight size={18} strokeWidth={2} className="transition-transform duration-300 group-hover/send:-translate-y-0.5 group-hover/send:translate-x-0.5" />
+                          )}
+                        </div>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="text-center mt-2">
-              <p className="text-[9px] text-[#333] font-sans tracking-[0.2em] font-medium uppercase opacity-50 hover:opacity-100 transition-opacity cursor-default">Powered by Kiara Intelligence</p>
+            
+            {/* Footer Text */}
+            <div className="text-center mt-3">
+              <p className="text-[10px] text-white/20 font-light tracking-[0.3em] uppercase hover:text-white/40 transition-colors duration-300 cursor-default">
+                Kiara Intelligence
+              </p>
             </div>
           </form>
         </div>

@@ -1173,16 +1173,17 @@ serve(async (req) => {
       }));
 
       // Append LoRA overrides if a LoRA is selected
+      // RHLoraLoader node uses "file_name" (not "lora_name") for the LoRA path
       if (loraConfig?.rh_lora_name) {
         const loraNodeId = loraConfig.lora_node_id
           || mergedParams.lora_node_id
-          || "105"; // LoraLoaderModelOnly node in Kiara Z MAX workflow
+          || "105"; // RHLoraLoader node in Kiara Z MAX workflow
         const strengthModel = typeof loraConfig.strength_model === "number"
           ? loraConfig.strength_model
           : 0.8;
 
         baseNodeInfoList.push(
-          { nodeId: String(loraNodeId), fieldName: "lora_name", fieldValue: loraConfig.rh_lora_name },
+          { nodeId: String(loraNodeId), fieldName: "file_name", fieldValue: loraConfig.rh_lora_name },
           { nodeId: String(loraNodeId), fieldName: "strength_model", fieldValue: String(strengthModel) },
         );
 

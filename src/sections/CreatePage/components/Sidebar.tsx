@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useI18n } from "@/contexts/I18nContext";
 import { Infinity, PanelLeft, ChevronRight, Settings, LogOut } from "lucide-react";
@@ -6,6 +7,8 @@ import { Infinity, PanelLeft, ChevronRight, Settings, LogOut } from "lucide-reac
 export const CreateSidebar = () => {
   const { user, profile, signOut } = useAuth();
   const { t } = useI18n();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -22,7 +25,7 @@ export const CreateSidebar = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showMenu]);
 
-  const pathname = typeof window !== "undefined" ? window.location.pathname : "/";
+  const pathname = location.pathname;
 
   const mainLinks = [
     { href: "/", label: t("Home"), icon: <HomeIcon /> },
@@ -155,7 +158,7 @@ export const CreateSidebar = () => {
               <div className="absolute bottom-[calc(100%+10px)] left-0 right-0 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.8)] overflow-hidden z-[60] backdrop-blur-xl">
                 <div className="p-1.5 space-y-0.5">
                   <button
-                    onClick={() => (window.location.href = "/settings")}
+                    onClick={() => navigate("/settings")}
                     className="w-full flex items-center gap-3 px-3 py-2.5 text-xs text-zinc-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
                   >
                     <Settings size={14} />
@@ -200,8 +203,8 @@ export const CreateSidebar = () => {
             </div>
           </div>
         ) : (
-          <a
-            href="/auth"
+          <Link
+            to="/auth"
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white text-black font-bold text-xs uppercase tracking-wider hover:bg-zinc-200 transition-colors ${
               isCollapsed ? "justify-center px-0 w-10 h-10 mx-auto" : ""
             }`}
@@ -211,7 +214,7 @@ export const CreateSidebar = () => {
             ) : (
               <span className="w-full text-center">{t("Sign In")}</span>
             )}
-          </a>
+          </Link>
         )}
       </div>
     </aside>
@@ -235,8 +238,8 @@ const SidebarItem: React.FC<SidebarItemProps> = ({
 }) => {
   return (
     <div className="relative group">
-      <a
-        href={href}
+      <Link
+        to={href}
         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative overflow-hidden group/item ${
           active
             ? "text-white bg-white/5 border border-white/5"
@@ -270,7 +273,7 @@ const SidebarItem: React.FC<SidebarItemProps> = ({
         {active && !collapsed && (
           <div className="absolute inset-0 bg-gradient-to-r from-purple-500/[0.06] to-transparent pointer-events-none" />
         )}
-      </a>
+      </Link>
 
       {collapsed && (
         <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-1.5 bg-black border border-white/10 rounded-lg text-xs font-bold text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none z-[60] shadow-xl translate-x-2 group-hover:translate-x-0">

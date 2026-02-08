@@ -204,6 +204,24 @@ export const kiaraMedia = async (params: KiaraMediaRequest): Promise<KiaraMediaR
   return kiaraRequest<KiaraMediaResponse>("kiara-media", params);
 };
 
+// ==================== INPAINTING (OpenAI Image Edit) ====================
+
+export interface KiaraInpaintRequest {
+  image: string;   // base64 data URI of original image
+  mask: string;    // base64 data URI of mask (transparent = edit area)
+  prompt: string;
+  model?: string;  // "gpt-image-1" (default) or "dall-e-2"
+  size?: string;   // "auto", "1024x1024", etc.
+  quality?: "low" | "medium" | "high";
+}
+
+export const kiaraInpaint = async (params: KiaraInpaintRequest): Promise<KiaraMediaResponse> => {
+  return kiaraRequest<KiaraMediaResponse>("kiara-media", {
+    action: "inpaint",
+    ...params,
+  });
+};
+
 export interface KiaraGeminiRequest {
   history: Array<{ role: string; content: string; attachments?: Array<{ id: string; data: string; mimeType: string }> }>;
   message: string;
@@ -260,62 +278,101 @@ export interface LoRAListResponse {
   loras: LoRAModel[];
 }
 
-export interface LoRAUploadInitResponse {
-  upload_url: string;
+export interface LoRAUploadResult {
   lora_id: string;
   rh_lora_name: string;
 }
 
 /**
- * Compute MD5 hex of a File (required by RunningHub upload API)
+ * Compute MD5 hex hash of a File using SparkMD5 (incremental, handles large files).
  */
-export const computeFileMD5 = (file: File): Promise<string> => {
+const computeFileMD5 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
+    const chunkSize = 2 * 1024 * 1024; // 2MB chunks
+    const spark = new SparkMD5.ArrayBuffer();
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const spark = new SparkMD5.ArrayBuffer();
-      spark.append(e.target!.result as ArrayBuffer);
-      resolve(spark.end());
+    let offset = 0;
+
+    const readNext = () => {
+      const slice = file.slice(offset, offset + chunkSize);
+      reader.readAsArrayBuffer(slice);
     };
-    reader.onerror = reject;
-    reader.readAsArrayBuffer(file);
+
+    reader.onload = (e) => {
+      if (!e.target?.result) return reject(new Error("Failed to read file chunk"));
+      spark.append(e.target.result as ArrayBuffer);
+      offset += chunkSize;
+      if (offset < file.size) {
+        readNext();
+      } else {
+        resolve(spark.end());
+      }
+    };
+
+    reader.onerror = () => reject(new Error("File read error during MD5 computation"));
+    readNext();
   });
 };
 
 /**
- * Step 1: Get presigned upload URL from RunningHub via edge function
+ * Upload a LoRA file to RunningHub via presigned URL.
+ * Flow:
+ *   1. Compute MD5 hash of file (browser-side)
+ *   2. prepare-upload → edge function calls RH /api/openapi/getLoraUploadUrl → returns presigned URL
+ *   3. Browser PUTs file directly to presigned URL (COS bucket)
+ *   4. confirm-upload → edge function marks DB record as completed
  */
-export const initLoRAUpload = async (params: {
-  lora_name: string;
-  md5_hex: string;
-  file_size_bytes: number;
-  trigger_word?: string;
-  description?: string;
-}): Promise<LoRAUploadInitResponse> => {
-  return kiaraRequest<LoRAUploadInitResponse>("upload-lora-runninghub", {
-    action: "get-upload-url",
-    ...params,
-  });
-};
-
-/**
- * Step 2: Upload file directly to RunningHub presigned URL
- * Runs in the browser — direct PUT to RunningHub, bypassing edge functions
- */
-export const uploadFileToPresignedUrl = async (
-  uploadUrl: string,
+export const uploadLoRA = async (
   file: File,
+  params: {
+    lora_name: string;
+    trigger_word?: string;
+    description?: string;
+  },
   onProgress?: (percent: number) => void
-): Promise<void> => {
-  return new Promise((resolve, reject) => {
+): Promise<LoRAUploadResult> => {
+  // Step 1: Compute MD5 hash
+  onProgress?.(1);
+  const md5Hex = await computeFileMD5(file);
+  onProgress?.(5);
+
+  // Step 2: Prepare — get presigned URL from RunningHub + create DB record
+  const prepareResult = await kiaraRequest<{
+    lora_id: string;
+    rh_lora_name: string;
+    upload_url: string;
+  }>("upload-lora-runninghub", {
+    action: "prepare-upload",
+    lora_name: params.lora_name,
+    md5_hex: md5Hex,
+    file_size_bytes: file.size,
+    trigger_word: params.trigger_word || "",
+    description: params.description || "",
+  });
+  onProgress?.(10);
+
+  // Step 3: Upload file through our edge function proxy (avoids COS CORS issues).
+  // Edge function streams body directly to the presigned URL — no buffering.
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+
+  const proxyUrl = `${getKiaraBaseUrl()}/upload-lora-runninghub`;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+  await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", uploadUrl);
+    xhr.open("POST", proxyUrl);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.setRequestHeader("Authorization", `Bearer ${session.access_token}`);
+    xhr.setRequestHeader("X-Upload-URL", prepareResult.upload_url);
+    xhr.setRequestHeader("X-Lora-ID", prepareResult.lora_id);
+    if (anonKey) xhr.setRequestHeader("apikey", anonKey);
 
     if (onProgress) {
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
-          onProgress(Math.round((event.loaded / event.total) * 100));
+          const pct = 10 + Math.round((event.loaded / event.total) * 85);
+          onProgress(pct);
         }
       };
     }
@@ -324,25 +381,24 @@ export const uploadFileToPresignedUrl = async (
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve();
       } else {
-        reject(new Error(`Upload failed: HTTP ${xhr.status}`));
+        let msg = `Upload failed (HTTP ${xhr.status})`;
+        try { msg = JSON.parse(xhr.responseText)?.error || msg; } catch {}
+        reject(new Error(msg));
       }
     };
 
     xhr.onerror = () => reject(new Error("Upload failed: network error"));
+    xhr.timeout = 600000; // 10 min for large files
+    xhr.ontimeout = () => reject(new Error("Upload timed out"));
+
     xhr.send(file);
   });
-};
 
-/**
- * Step 3: Confirm upload completion
- */
-export const confirmLoRAUpload = async (
-  loraId: string
-): Promise<{ success: boolean; lora: LoRAModel }> => {
-  return kiaraRequest<{ success: boolean; lora: LoRAModel }>(
-    "upload-lora-runninghub",
-    { action: "confirm-upload", lora_id: loraId }
-  );
+  onProgress?.(100);
+  return {
+    lora_id: prepareResult.lora_id,
+    rh_lora_name: prepareResult.rh_lora_name,
+  };
 };
 
 /**

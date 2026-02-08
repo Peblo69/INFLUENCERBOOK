@@ -1,8 +1,9 @@
 import logoUrl from "@/assets/fantasy-prompts-logo.svg";
+import { Link } from "react-router-dom";
 export const NavbarLogo = () => {
   return (
-    <a
-      href="/"
+    <Link
+      to="/"
       aria-label="Fantasy Prompts"
       className="items-center box-border caret-transparent flex"
     >
@@ -14,6 +15,6 @@ export const NavbarLogo = () => {
       <span className="ml-2 text-sm md:text-base font-semibold select-none">
         Fantasy Prompts
       </span>
-    </a>
+    </Link>
   );
 };

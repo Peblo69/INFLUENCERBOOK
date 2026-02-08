@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Infinity, PanelLeft, ChevronRight, Settings, LogOut } from "lucide-react";
 
-export const ModelsSidebar = () => {
+export const InfluencersSidebar = () => {
   const { user, profile, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -33,13 +33,6 @@ export const ModelsSidebar = () => {
     { href: "/images", label: "Images", icon: <ImageIcon /> },
     { href: "/videos", label: "Video", icon: <VideoIcon /> },
     { href: "/influencers", label: "Influencers", icon: <InfluencerIcon /> },
-  ];
-
-  const libraryLinks = [
-    { href: "/media", label: "My Media" },
-    { href: "/favorites", label: "Favorites" },
-    { href: "/uploads", label: "Uploads" },
-    { href: "/trash", label: "Trash" },
   ];
 
   return (
@@ -85,25 +78,6 @@ export const ModelsSidebar = () => {
               <SidebarItem 
                 key={link.href}
                 icon={link.icon} 
-                label={link.label} 
-                active={pathname === link.href}
-                href={link.href}
-                collapsed={isCollapsed}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Library Section */}
-        <div>
-          <div className={`px-3 text-[10px] font-medium text-white/30 uppercase tracking-[0.15em] mb-2 transition-all duration-300 ${isCollapsed ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100 h-auto'}`}>
-            Library
-          </div>
-          <div className="space-y-0.5">
-            {libraryLinks.map((link) => (
-              <SidebarItem 
-                key={link.href}
-                icon={<FolderIcon />}
                 label={link.label} 
                 active={pathname === link.href}
                 href={link.href}
@@ -281,11 +255,5 @@ const VideoIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="23 7 16 12 23 17 23 7" />
     <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-  </svg>
-);
-
-const FolderIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
   </svg>
 );

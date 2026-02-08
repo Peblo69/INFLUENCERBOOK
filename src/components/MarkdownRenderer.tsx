@@ -191,12 +191,17 @@ interface MarkdownRendererProps {
 const MarkdownRendererInner = ({ content, isStreaming }: MarkdownRendererProps) => {
   if (!content) return null;
 
-  // RAW MODE: no markdown parsing, no formatting fixes — just the raw API output
+  const processed = isStreaming ? fixPartialMarkdown(content) : content;
+
   return (
     <div
-      className="text-[14px] font-sans leading-[1.75] tracking-normal antialiased break-words text-zinc-200 whitespace-pre-wrap"
+      data-no-translate="true"
+      className="text-[14px] font-sans leading-[1.75] tracking-normal antialiased break-words"
+      style={isStreaming ? { contain: "content" } : undefined}
     >
-      {content}
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {processed}
+      </ReactMarkdown>
     </div>
   );
 };

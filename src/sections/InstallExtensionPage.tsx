@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 
 export const InstallExtensionPage = () => {
   return (
@@ -148,7 +149,7 @@ export const InstallExtensionPage = () => {
 
         {/* Footer */}
         <div style={{ textAlign: 'center', marginTop: '60px', opacity: 0.8 }}>
-          <p>Need help? <a href="/" style={{ color: 'white', textDecoration: 'underline' }}>Visit Kiara Studio</a></p>
+          <p>Need help? <Link to="/" style={{ color: 'white', textDecoration: 'underline' }}>Visit Kiara Studio</Link></p>
           <p style={{ marginTop: '12px', fontSize: '14px' }}>Made with 💜 by Kiara Studio Labs</p>
         </div>
       </div>

@@ -7,10 +7,7 @@ import { fileToBase64, uploadGeneratedImages } from "@/lib/supabase/storage";
 import {
   kiaraGenerate,
   listUserLoRAs,
-  initLoRAUpload,
-  uploadFileToPresignedUrl,
-  confirmLoRAUpload,
-  computeFileMD5,
+  uploadLoRA,
   type LoRAModel,
 } from "@/services/kiaraGateway";
 import { streamMessageToGrok, type GrokAttachment } from "@/services/grokService";
@@ -29,8 +26,122 @@ import {
   Globe,
   Layers,
   Check,
+  ChevronDown,
+  Heart,
+  Ellipsis,
+  RotateCcw,
+  Copy,
+  Trash2,
 } from "lucide-react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+
+// Custom Icons for Settings Panel
+const SlidersIcon = ({ className = "" }: { className?: string }) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M4 21v-7" />
+    <path d="M4 10V3" />
+    <path d="M12 21v-9" />
+    <path d="M12 8V3" />
+    <path d="M20 21v-5" />
+    <path d="M20 12V3" />
+    <path d="M1 14h6" />
+    <path d="M9 8h6" />
+    <path d="M17 16h6" />
+  </svg>
+);
+
+const AspectRatioIcon = ({ className = "" }: { className?: string }) => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <path d="M12 4v16" />
+  </svg>
+);
+
+const ResolutionIcon = ({ className = "" }: { className?: string }) => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M9 3v18" />
+    <path d="M15 3v18" />
+    <path d="M3 9h18" />
+    <path d="M3 15h18" />
+  </svg>
+);
+
+const ImagesIcon = ({ className = "" }: { className?: string }) => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="8.5" cy="8.5" r="1.5" />
+    <path d="M21 15l-5-5L5 21" />
+  </svg>
+);
+
+const SeedIcon = ({ className = "" }: { className?: string }) => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M12 2v20" />
+    <path d="M2 12h20" />
+    <circle cx="12" cy="12" r="10" />
+  </svg>
+);
+
+const HashIcon = ({ className = "" }: { className?: string }) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <line x1="4" y1="9" x2="20" y2="9" />
+    <line x1="4" y1="15" x2="20" y2="15" />
+    <line x1="10" y1="3" x2="8" y2="21" />
+    <line x1="16" y1="3" x2="14" y2="21" />
+  </svg>
+);
+
+const SparklesIcon = ({ className = "" }: { className?: string }) => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+  </svg>
+);
+
+const UploadIcon = ({ className = "" }: { className?: string }) => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="17 8 12 3 7 8" />
+    <line x1="12" y1="3" x2="12" y2="15" />
+  </svg>
+);
+
+const ChevronDownIcon = ({ className = "" }: { className?: string }) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+);
+
+// Aspect Ratio Icons
+const Square1x1Icon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+  </svg>
+);
+
+const Wide16x9Icon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="2" y="6" width="20" height="12" rx="2" />
+  </svg>
+);
+
+const Tall9x16Icon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="7" y="2" width="10" height="20" rx="2" />
+  </svg>
+);
+
+const Wide4x3Icon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+  </svg>
+);
+
+const Tall3x4Icon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="5" y="3" width="14" height="18" rx="2" />
+  </svg>
+);
 
 type TabType = "generations" | "images";
 
@@ -53,6 +164,19 @@ interface GeneratedImage {
   prompt: string;
   createdAt: string;
   model?: string;
+  aspectRatio?: string;
+  resolution?: string;
+}
+
+interface LightboxImage {
+  id: string;
+  url: string;
+  prompt: string;
+  model?: string;
+  aspectRatio?: string;
+  resolution?: string;
+  createdAt?: string;
+  isSession?: boolean; // true = session image, false = DB image
 }
 
 // ============================================================================
@@ -134,15 +258,23 @@ const InputCapsule: React.FC<InputCapsuleProps> = ({
   const canSend = (chatInput.trim().length > 0 || visionAIImages.length > 0) && !isAiResponding && !isGenerating;
 
   return (
-    <div className={`bg-[#0a0a0a] border border-white/10 rounded-[24px] shadow-2xl relative focus-within:border-white/20 transition-all duration-300 ${isBottom ? 'w-full max-w-3xl backdrop-blur-xl bg-[#0a0a0a]/90 p-2' : 'p-1.5'}`}>
+    <div className={`relative rounded-[24px] overflow-hidden transition-all duration-300 ${isBottom ? 'w-full max-w-3xl' : ''}`}>
+      {/* Multi-layer glass background */}
+      <div className="absolute inset-0 bg-gradient-to-b from-white/[0.05] to-white/[0.02]" />
+      <div className="absolute inset-0 backdrop-blur-xl" />
+      <div className="absolute inset-0 bg-black/50" />
+      <div className="absolute inset-0 rounded-[24px] border border-white/[0.06]" />
+      <div className="absolute inset-0 rounded-[24px] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]" />
+      
+      <div className={`relative ${isBottom ? 'p-1.5' : 'p-1.5'}`}>
 
     {visionAIImages.length > 0 && (
-      <div className="flex gap-2 px-3 pt-2 pb-1 overflow-x-auto">
+      <div className="flex gap-1.5 px-2.5 pt-1.5 pb-1 overflow-x-auto scrollbar-hide">
         {visionAIImages.map((img, i) => (
-          <div key={i} className="relative w-12 h-12 rounded-lg overflow-hidden border border-white/10 flex-shrink-0 group">
+          <div key={i} className="relative w-10 h-10 rounded-lg overflow-hidden border border-white/[0.06] flex-shrink-0 group">
             <img src={img.preview} className="w-full h-full object-cover" />
-            <button onClick={() => setVisionAIImages(p => p.filter((_, x) => x !== i))} className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-              <X size={12} className="text-white" />
+            <button onClick={() => setVisionAIImages(p => p.filter((_, x) => x !== i))} className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
+              <X size={10} className="text-white/70" />
             </button>
           </div>
         ))}
@@ -154,237 +286,342 @@ const InputCapsule: React.FC<InputCapsuleProps> = ({
       value={chatInput}
       onChange={(e) => setChatInput(e.target.value)}
       onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSend) handleSend(); } }}
-      placeholder={isBottom ? t("Enter your prompt for direct generation...") : t("Message Kiara...")}
-      className={`w-full bg-transparent text-[14px] px-3 py-2.5 outline-none resize-none placeholder:text-zinc-500 text-zinc-100 max-h-[120px] chat-text ${isBottom ? 'min-h-[48px]' : 'min-h-[40px]'}`}
+      placeholder={isBottom ? t("Enter prompt...") : t("Message Kiara...")}
+      className={`w-full bg-transparent text-[13px] px-2.5 py-2 outline-none resize-none placeholder:text-white/25 text-white/85 max-h-[100px] chat-text leading-relaxed ${isBottom ? 'min-h-[40px]' : 'min-h-[36px]'}`}
       rows={1}
     />
 
-    <div className="px-1.5 pb-1 flex items-center justify-between">
+    {isBottom && (
+      <div
+        aria-hidden={!showSettings}
+        className={`overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          showSettings
+            ? "max-h-[380px] opacity-100 translate-y-0 mt-1.5"
+            : "max-h-0 opacity-0 -translate-y-2 pointer-events-none"
+        }`}
+      >
+        {/* Compact Premium Settings Panel */}
+        <div className="relative mb-1.5 rounded-xl overflow-hidden">
+          {/* Multi-layer glass background */}
+          <div className="absolute inset-0 bg-gradient-to-b from-white/[0.06] to-white/[0.02]" />
+          <div className="absolute inset-0 backdrop-blur-xl" />
+          <div className="absolute inset-0 bg-black/50" />
+          <div className="absolute inset-0 rounded-xl border border-white/[0.06]" />
+          
+          {/* Content */}
+          <div className="relative p-3">
+            {/* Compact Header */}
+            <div className="flex items-center justify-between mb-2 pb-2 border-b border-white/[0.05]">
+              <div className="flex items-center gap-1.5">
+                <SlidersIcon className="text-white/50 w-3 h-3" />
+                <span className="text-[10px] font-medium text-white/70">{t("Settings")}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSettings(false)}
+                className="w-5 h-5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/60 transition-all"
+              >
+                <X size={10} />
+              </button>
+            </div>
+
+            <div className="max-h-[300px] overflow-y-auto scrollbar-hide space-y-2.5">
+              {/* Aspect Ratio - Compact */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/40">{t("Ratio")}</label>
+                </div>
+                <div className="flex gap-1">
+                  {[
+                    { id: "1:1", icon: <Square1x1Icon /> },
+                    { id: "16:9", icon: <Wide16x9Icon /> },
+                    { id: "9:16", icon: <Tall9x16Icon /> },
+                    { id: "4:3", icon: <Wide4x3Icon /> },
+                    { id: "3:4", icon: <Tall3x4Icon /> },
+                  ].map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => setImageRatio(r.id)}
+                      className={`flex-1 h-7 rounded-lg flex items-center justify-center transition-all duration-150 ${
+                        imageRatio === r.id
+                          ? "bg-white/[0.1] border border-white/[0.15] text-white/90"
+                          : "bg-white/[0.02] border border-white/[0.04] text-white/30 hover:bg-white/[0.05] hover:text-white/50"
+                      }`}
+                    >
+                      <span className="scale-75">{r.icon}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Resolution & Count - Compact Row */}
+              <div className="flex gap-2">
+                {/* Resolution */}
+                <div className="flex-1">
+                  <label className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/40 mb-1 block">{t("Res")}</label>
+                  <div className="flex gap-1">
+                    {[
+                      { id: "1k", label: "1K" },
+                      { id: "2k", label: "2K" },
+                    ].map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => setImageResolution(r.id)}
+                        className={`flex-1 h-6 rounded-md text-[10px] font-medium transition-all duration-150 ${
+                          imageResolution === r.id
+                            ? "bg-white/[0.1] border border-white/[0.15] text-white/90"
+                            : "bg-white/[0.02] border border-white/[0.04] text-white/30 hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Count */}
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/40">{t("Count")}</label>
+                    <span className="text-[9px] font-semibold text-white/60">{generationSettings.numberOfImages}</span>
+                  </div>
+                  <div className="h-6 px-2 rounded-md bg-white/[0.02] border border-white/[0.04] flex items-center">
+                    <input
+                      type="range"
+                      min="1"
+                      max="4"
+                      value={generationSettings.numberOfImages}
+                      onChange={(e) =>
+                        setGenerationSettings((prev) => ({
+                          ...prev,
+                          numberOfImages: parseInt(e.target.value, 10),
+                        }))
+                      }
+                      className="flex-1 h-0.5 bg-white/10 rounded-full appearance-none cursor-pointer"
+                      style={{
+                        background: `linear-gradient(to right, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.35) ${(generationSettings.numberOfImages - 1) / 3 * 100}%, rgba(255,255,255,0.08) ${(generationSettings.numberOfImages - 1) / 3 * 100}%, rgba(255,255,255,0.08) 100%)`
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Seed - Compact */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <HashIcon className="text-white/30 w-3 h-3" />
+                  <label className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/40">{t("Seed")}</label>
+                  <span className="text-[8px] text-white/20 ml-auto">{t("Optional")}</span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder={t("Random")}
+                    value={generationSettings.seed}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9]/g, "");
+                      setGenerationSettings((prev) => ({ ...prev, seed: val }));
+                    }}
+                    className="w-full h-7 rounded-lg bg-white/[0.02] border border-white/[0.05] px-2 pl-7 font-mono text-[11px] text-white/60 placeholder:text-white/20 outline-none transition-all focus:border-white/[0.1]"
+                  />
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-white/20 text-[10px]">#</span>
+                  {generationSettings.seed && (
+                    <button
+                      onClick={() => setGenerationSettings((prev) => ({ ...prev, seed: "" }))}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/50 transition-colors"
+                    >
+                      <X size={10} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* LoRA - Compact */}
+              <div className="pt-2 border-t border-white/[0.05]">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <SparklesIcon className="text-white/40 w-3 h-3" />
+                    <span className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/40">{t("LoRA")}</span>
+                  </div>
+                  <button
+                    onClick={() => loraFileInputRef.current?.click()}
+                    disabled={isUploadingLoRA}
+                    className="text-[9px] font-medium text-white/50 hover:text-white/70 transition-colors disabled:opacity-50"
+                  >
+                    {isUploadingLoRA ? `${uploadProgress ?? 0}%` : t("+ Upload")}
+                  </button>
+                </div>
+
+                {isUploadingLoRA && (
+                  <div className="mb-1.5 h-1 w-full overflow-hidden rounded-full bg-white/[0.03]">
+                    <div
+                      className="h-full rounded-full bg-white/30 transition-all duration-300"
+                      style={{ width: `${uploadProgress ?? 0}%` }}
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  {/* LoRA Select */}
+                  <div className="relative">
+                    <select
+                      value={selectedLoRA || ""}
+                      onChange={(e) => {
+                        const id = e.target.value || null;
+                        setSelectedLoRA(id);
+                        if (id) {
+                          const lora = userLoRAs.find((l) => l.id === id);
+                          if (lora) setLoraStrength(lora.default_strength);
+                        }
+                      }}
+                      className="w-full h-7 rounded-lg bg-white/[0.02] border border-white/[0.05] px-2 pr-7 appearance-none text-[11px] text-white/60 outline-none transition-all focus:border-white/[0.1] cursor-pointer"
+                    >
+                      <option value="">{t("None")}</option>
+                      {userLoRAs.map((lora) => (
+                        <option key={lora.id} value={lora.id}>
+                          {lora.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDownIcon className="absolute right-2 top-1/2 -translate-y-1/2 text-white/25 w-3 h-3 pointer-events-none" />
+                  </div>
+
+                  {/* Strength Slider - Compact */}
+                  {selectedLoRA && (
+                    <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/[0.02] border border-white/[0.04] animate-in slide-in-from-top-1 fade-in duration-200">
+                      <span className="text-[9px] text-white/30 w-8">{t("Str")}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="2"
+                        step="0.05"
+                        value={loraStrength}
+                        onChange={(e) => setLoraStrength(parseFloat(e.target.value))}
+                        className="flex-1 h-0.5 bg-white/10 rounded-full appearance-none cursor-pointer"
+                        style={{
+                          background: `linear-gradient(to right, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.3) ${(loraStrength / 2) * 100}%, rgba(255,255,255,0.06) ${(loraStrength / 2) * 100}%, rgba(255,255,255,0.06) 100%)`
+                        }}
+                      />
+                      <span className="text-[9px] font-medium text-white/50 w-8 text-right">{loraStrength.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    <div className="px-1 pb-0.5 flex items-center justify-between">
       <div className="flex items-center gap-0.5">
-        <button onClick={() => fileInputRef.current?.click()} className="w-7 h-7 rounded-full hover:bg-white/5 flex items-center justify-center text-zinc-400 hover:text-white transition-colors">
-          <Paperclip size={14} />
+        <button onClick={() => fileInputRef.current?.click()} className="w-7 h-7 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] flex items-center justify-center text-white/35 hover:text-white/60 transition-all">
+          <Paperclip size={13} strokeWidth={1.5} />
         </button>
         {isBottom && (
           <>
-            <button className="w-7 h-7 rounded-full hover:bg-white/5 flex items-center justify-center text-zinc-400 hover:text-white transition-colors">
-              <Mic size={14} />
+            <button className="w-7 h-7 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] flex items-center justify-center text-white/35 hover:text-white/60 transition-all">
+              <Mic size={13} strokeWidth={1.5} />
             </button>
-            <button className="w-7 h-7 rounded-full hover:bg-white/5 flex items-center justify-center text-zinc-400 hover:text-white transition-colors">
-              <Globe size={14} />
+            <button className="w-7 h-7 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] flex items-center justify-center text-white/35 hover:text-white/60 transition-all">
+              <Globe size={13} strokeWidth={1.5} />
             </button>
           </>
         )}
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1">
         {isBottom && (
           <>
-            {/* Active settings chips — click to open settings */}
-            <div className="flex items-center gap-1.5 mr-1">
-              <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide ${imageRatio !== "1:1" ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-white/5 text-zinc-500 border border-white/10'}`}>
+            {/* Active settings chips */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowSettings(true);
+                setShowModelMenu(false);
+              }}
+              className="flex items-center gap-0.5 rounded-full p-0.5 transition-colors hover:bg-white/[0.02]"
+              title={t("Open settings")}
+            >
+              <span className={`px-2 py-0.5 rounded-full text-[9px] font-medium tracking-wide transition-all ${imageRatio !== "1:1" ? 'bg-white/[0.08] text-white/70 border border-white/[0.12]' : 'bg-white/[0.02] text-white/35 border border-white/[0.05]'}`}>
                 {imageRatio}
               </span>
-              <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide ${imageResolution !== "1k" ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-white/5 text-zinc-500 border border-white/10'}`}>
+              <span className={`px-2 py-0.5 rounded-full text-[9px] font-medium tracking-wide transition-all ${imageResolution !== "1k" ? 'bg-white/[0.08] text-white/70 border border-white/[0.12]' : 'bg-white/[0.02] text-white/35 border border-white/[0.05]'}`}>
                 {imageResolution === "1k" ? "1K" : "2K"}
               </span>
               {generationSettings.numberOfImages > 1 && (
-                <span className="px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] font-bold tracking-wide">
-                  x{generationSettings.numberOfImages}
+                <span className="px-2 py-0.5 rounded-full bg-white/[0.08] text-white/70 border border-white/[0.12] text-[9px] font-medium">
+                  ×{generationSettings.numberOfImages}
                 </span>
               )}
               {selectedLoRA && (
-                <span className="px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] font-bold tracking-wide">
+                <span className="px-2 py-0.5 rounded-full bg-white/[0.08] text-white/70 border border-white/[0.12] text-[9px] font-medium">
                   LoRA
                 </span>
               )}
-            </div>
+            </button>
 
             {/* Models Selector */}
             <div className="relative">
               <button
                 onClick={() => { setShowModelMenu(!showModelMenu); setShowSettings(false); }}
-                className="group w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 border border-white/5 flex items-center justify-center text-zinc-500 hover:text-zinc-300 transition-all duration-200 hover:scale-110 active:scale-95"
+                className="w-7 h-7 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] flex items-center justify-center text-white/35 hover:text-white/60 transition-all"
                 title={t("Models")}
               >
-                <Layers size={13} className="transition-transform duration-300 group-hover:rotate-12" />
+                <Layers size={13} strokeWidth={1.5} />
               </button>
               {showModelMenu && (
-                <div className="absolute bottom-full right-0 mb-2 w-52 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl backdrop-blur-xl animate-fadeIn overflow-hidden z-[100]">
-                  <div className="px-3 py-2 border-b border-white/5">
-                    <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{t("Select Model")}</span>
+                <div className="absolute bottom-full right-0 mb-1.5 w-48 bg-black/95 border border-white/[0.06] rounded-xl shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-200 overflow-hidden z-[100]">
+                  <div className="px-3 py-2 border-b border-white/[0.05]">
+                    <span className="text-[9px] font-medium text-white/35 uppercase tracking-[0.12em]">{t("Model")}</span>
                   </div>
                   {[
-                    { id: "kiara-z-max", name: "Kiara Z MAX", desc: "Premium quality" },
+                    { id: "kiara-z-max", name: "Kiara Z MAX", desc: "Premium" },
                   ].map((model) => (
                     <button
                       key={model.id}
                       onClick={() => { setSelectedModel(model.id); setShowModelMenu(false); }}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/5 transition-colors ${selectedModel === model.id ? 'bg-white/5' : ''}`}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.03] transition-colors ${selectedModel === model.id ? 'bg-white/[0.04]' : ''}`}
                     >
-                      <div className="w-5 h-5 rounded-full border border-white/10 flex items-center justify-center flex-shrink-0">
-                        {selectedModel === model.id && <Check size={10} className="text-white" />}
+                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${selectedModel === model.id ? 'border-white/25' : 'border-white/[0.08]'}`}>
+                        {selectedModel === model.id && <Check size={8} className="text-white/70" />}
                       </div>
                       <div>
-                        <p className="text-xs font-semibold text-white">{model.name}</p>
-                        <p className="text-[10px] text-zinc-500">{model.desc}</p>
+                        <p className="text-[12px] font-medium text-white/80">{model.name}</p>
+                        <p className="text-[9px] text-white/30">{model.desc}</p>
                       </div>
                     </button>
                   ))}
                 </div>
               )}
             </div>
+
             {/* Config Button */}
-            <div className="relative">
-              <button
-                onClick={() => { setShowSettings(!showSettings); setShowModelMenu(false); }}
-                className={`group w-8 h-8 rounded-full border border-white/5 flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95 ${showSettings ? 'bg-white text-black' : 'bg-black/40 hover:bg-black/60 text-zinc-500 hover:text-zinc-300'}`}
-                title={t("Config")}
-              >
-                <Settings size={13} className="transition-transform duration-300 group-hover:rotate-90" />
-              </button>
-              {showSettings && (
-                <div className="absolute bottom-full right-0 mb-2 w-72 bg-[#0a0a0a] border border-white/10 rounded-2xl p-4 shadow-2xl z-[100] backdrop-blur-xl animate-fadeIn">
-                  <div className="space-y-5">
-                    {/* Aspect Ratio */}
-                    <div>
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2.5 block">{t("Aspect Ratio")}</label>
-                      <div className="grid grid-cols-5 gap-1.5">
-                        {["1:1", "16:9", "9:16", "4:3", "3:4"].map((r) => (
-                          <button
-                            key={r}
-                            onClick={() => { setImageRatio(r); setShowSettings(false); }}
-                            className={`py-2 rounded-lg text-[11px] font-bold transition-all duration-150 ${imageRatio === r ? "bg-white text-black" : "bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white"}`}
-                          >
-                            {r}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    {/* Resolution */}
-                    <div>
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2.5 block">{t("Resolution")}</label>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {[
-                          { id: "1k", label: "1K", desc: "~1024px" },
-                          { id: "2k", label: "2K", desc: "~2048px" },
-                        ].map((r) => (
-                          <button
-                            key={r.id}
-                            onClick={() => { setImageResolution(r.id); setShowSettings(false); }}
-                            className={`py-2 rounded-lg text-[11px] font-bold transition-all duration-150 ${imageResolution === r.id ? "bg-white text-black" : "bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white"}`}
-                          >
-                            {r.label} <span className="opacity-50">{r.desc}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    {/* Image Count */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2.5">
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{t("Image Count")}</label>
-                        <span className="text-[12px] font-bold text-white bg-white/10 px-2.5 py-0.5 rounded-full">{generationSettings.numberOfImages}</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="1"
-                        max="4"
-                        value={generationSettings.numberOfImages}
-                        onChange={(e) =>
-                          setGenerationSettings((prev) => ({
-                            ...prev,
-                            numberOfImages: parseInt(e.target.value, 10),
-                          }))
-                        }
-                        className="w-full accent-white"
-                      />
-                    </div>
-                    {/* Seed */}
-                    <div>
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2.5 block">{t("Seed")}</label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        placeholder={t("Random")}
-                        value={generationSettings.seed}
-                        onChange={(e) => {
-                          const val = e.target.value.replace(/[^0-9]/g, "");
-                          setGenerationSettings((prev) => ({ ...prev, seed: val }));
-                        }}
-                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-white/20 transition-colors font-mono"
-                      />
-                      <p className="text-[9px] text-zinc-600 mt-1.5">{t("Leave empty for random seed each generation")}</p>
-                    </div>
-                    {/* LoRA */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2.5">
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{t("LoRA")}</label>
-                        <button
-                          onClick={() => loraFileInputRef.current?.click()}
-                          disabled={isUploadingLoRA}
-                          className="text-[10px] font-bold text-purple-400 hover:text-purple-300 uppercase tracking-wider disabled:opacity-50"
-                        >
-                          {isUploadingLoRA ? `${uploadProgress ?? 0}%` : t("+ Upload")}
-                        </button>
-                      </div>
-                      {isUploadingLoRA && (
-                        <div className="w-full h-1.5 bg-white/5 rounded-full mb-2.5 overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all duration-300"
-                            style={{ width: `${uploadProgress ?? 0}%` }}
-                          />
-                        </div>
-                      )}
-                      <select
-                        value={selectedLoRA || ""}
-                        onChange={(e) => {
-                          const id = e.target.value || null;
-                          setSelectedLoRA(id);
-                          if (id) {
-                            const lora = userLoRAs.find((l) => l.id === id);
-                            if (lora) setLoraStrength(lora.default_strength);
-                          }
-                        }}
-                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20 transition-colors appearance-none cursor-pointer"
-                      >
-                        <option value="">{t("None (default)")}</option>
-                        {userLoRAs.map((lora) => (
-                          <option key={lora.id} value={lora.id}>
-                            {lora.name} {lora.trigger_word ? `(${lora.trigger_word})` : ""}
-                          </option>
-                        ))}
-                      </select>
-                      {selectedLoRA && (
-                        <div className="mt-3">
-                          <div className="flex items-center justify-between mb-1.5">
-                            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{t("Strength")}</label>
-                            <span className="text-[12px] font-bold text-white bg-white/10 px-2.5 py-0.5 rounded-full">{loraStrength.toFixed(2)}</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max="2"
-                            step="0.05"
-                            value={loraStrength}
-                            onChange={(e) => setLoraStrength(parseFloat(e.target.value))}
-                            className="w-full accent-white"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <button
+              onClick={() => { setShowSettings(!showSettings); setShowModelMenu(false); }}
+              className={`h-7 rounded-full px-2.5 text-[10px] font-medium tracking-wide flex items-center gap-1 transition-all active:scale-95 ${
+                showSettings
+                  ? "bg-white/[0.08] text-white/80 border border-white/[0.12]"
+                  : "bg-white/[0.02] text-white/40 hover:bg-white/[0.05] hover:text-white/60 border border-white/[0.05]"
+              }`}
+              title={t("Settings")}
+            >
+              <Settings size={12} strokeWidth={1.5} className={`transition-transform ${showSettings ? "rotate-90" : ""}`} />
+              <span className="hidden sm:inline">{t("Settings")}</span>
+              <ChevronDown size={11} strokeWidth={1.5} className={`transition-transform ${showSettings ? "rotate-180" : ""}`} />
+            </button>
           </>
         )}
         <button
           onClick={() => handleSend()}
           disabled={!canSend}
-          className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:bg-zinc-200 transition-all shadow-[0_0_15px_rgba(255,255,255,0.15)] disabled:opacity-30 disabled:cursor-not-allowed transform active:scale-95"
+          className="w-7 h-7 rounded-full bg-white text-black flex items-center justify-center hover:bg-white/90 transition-all shadow-[0_0_15px_rgba(255,255,255,0.1)] disabled:opacity-30 disabled:cursor-not-allowed active:scale-95"
         >
-          <ArrowUpRight size={16} strokeWidth={2.5} />
+          <ArrowUpRight size={15} strokeWidth={2.5} />
         </button>
       </div>
+    </div>
     </div>
     </div>
   );
@@ -394,6 +631,25 @@ const IMAGES_PER_ROW = 5;
 const ROWS_PER_PAGE = 6;
 const IMAGES_PER_PAGE = IMAGES_PER_ROW * ROWS_PER_PAGE;
 
+
+const downloadImage = async (url: string, filename?: string) => {
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const ext = blob.type.includes("png") ? ".png" : blob.type.includes("webp") ? ".webp" : ".jpg";
+    const name = filename || `kiara-${Date.now()}${ext}`;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  } catch {
+    // Fallback: open in new tab if download fails (e.g. CORS)
+    window.open(url, "_blank");
+  }
+};
 
 const resolveStoredImageUrl = (path: string) => {
   if (!path) return "";
@@ -464,6 +720,21 @@ const ImagesGalleryContent = () => {
 
   const totalPages = Math.ceil(totalImages / IMAGES_PER_PAGE);
 
+  const handleDeleteGalleryImage = async (imageId: string) => {
+    try {
+      const { error } = await supabase
+        .from("ai_generation_outputs")
+        .delete()
+        .eq("id", imageId);
+      if (error) throw error;
+      setImages((prev) => prev.filter((img) => img.id !== imageId));
+      setTotalImages((prev) => Math.max(0, prev - 1));
+      if (selectedImage?.id === imageId) setSelectedImage(null);
+    } catch (err: any) {
+      console.error("Delete failed:", err);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -500,16 +771,46 @@ const ImagesGalleryContent = () => {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-5 gap-2.5">
             {images.map((img) => (
               <div
                 key={img.id}
-                onClick={() => setSelectedImage(img)}
-                className="aspect-square bg-zinc-900 rounded-xl overflow-hidden cursor-pointer border border-white/5 hover:border-white/20 transition-all duration-300 relative group"
+                className="aspect-square bg-[#0a0a0a] rounded-2xl overflow-hidden relative group cursor-pointer border border-white/[0.04] hover:border-white/[0.12] transition-all duration-500"
               >
-                <img src={img.imageUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-4 flex flex-col justify-end">
-                  <p className="text-[10px] text-white/80 line-clamp-2">{img.prompt}</p>
+                <img
+                  src={img.imageUrl}
+                  onClick={() => setSelectedImage(img)}
+                  className="w-full h-full object-cover transition-all duration-700 group-hover:scale-[1.03]"
+                  loading="lazy"
+                />
+                <div className="absolute bottom-0 left-0 right-0 px-3 pb-2.5 pt-8 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none">
+                  <span className="text-[10px] font-medium text-white/70 tracking-wide">{img.model || "Kiara Z MAX"}</span>
+                </div>
+                <div className="absolute top-2.5 right-2.5 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); }}
+                    className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-pink-400 hover:border-pink-400/30 hover:bg-pink-500/10 transition-all duration-200"
+                  >
+                    <Heart size={12} />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); downloadImage(img.imageUrl); }}
+                    className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:border-white/30 transition-all duration-200"
+                  >
+                    <Download size={12} />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteGalleryImage(img.id); }}
+                    className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-red-400 hover:border-red-400/30 hover:bg-red-500/10 transition-all duration-200"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); }}
+                    className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:border-white/30 transition-all duration-200"
+                  >
+                    <Ellipsis size={12} />
+                  </button>
                 </div>
               </div>
             ))}
@@ -541,38 +842,65 @@ const ImagesGalleryContent = () => {
 
       {/* Detail Modal */}
       {selectedImage && (
-        <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-xl flex items-center justify-center p-10" onClick={() => setSelectedImage(null)}>
-          <div className="max-w-6xl w-full h-[80vh] flex gap-8" onClick={e => e.stopPropagation()}>
-            <div className="flex-1 bg-[#050505] rounded-3xl border border-white/10 flex items-center justify-center p-4">
-              <img src={selectedImage.imageUrl} className="max-w-full max-h-full object-contain shadow-2xl" />
+        <div className="fixed inset-0 z-[100] bg-black/97 backdrop-blur-2xl flex items-center justify-center animate-fadeIn" onClick={() => setSelectedImage(null)}>
+          <button
+            onClick={() => setSelectedImage(null)}
+            className="absolute top-6 right-6 w-9 h-9 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-white/50 hover:text-white transition-all duration-200 z-10"
+          >
+            <X size={18} />
+          </button>
+
+          <div className="flex items-center gap-16 max-w-[90vw] max-h-[88vh] px-12" onClick={e => e.stopPropagation()}>
+            <div className="flex-shrink-0 max-w-[60vw] max-h-[85vh] flex items-center justify-center">
+              <img src={selectedImage.imageUrl} className="max-w-full max-h-[85vh] object-contain rounded-xl" />
             </div>
-            <div className="w-[350px] bg-[#0a0a0a] rounded-3xl border border-white/10 p-8 flex flex-col">
-              <div className="flex justify-between items-start mb-8">
-                <h3 className="text-xl font-bold text-white">{t("Details")}</h3>
-                <button onClick={() => setSelectedImage(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
+
+            <div className="flex-shrink-0 w-[280px] flex flex-col justify-center py-8 space-y-10">
+              <div>
+                <p className="text-[10px] font-bold text-white/25 uppercase tracking-[0.2em] mb-3">{t("Prompt")}</p>
+                <p className="text-[13px] text-white/80 font-light leading-[1.7]">{selectedImage.prompt}</p>
               </div>
-              <div className="space-y-6 flex-1 overflow-y-auto custom-scrollbar">
+
+              <div className="space-y-5">
                 <div>
-                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-2 block">{t("Prompt")}</label>
-                  <p className="text-sm text-zinc-300 font-light leading-relaxed">{selectedImage.prompt}</p>
+                  <p className="text-[10px] font-bold text-white/25 uppercase tracking-[0.2em] mb-1.5">{t("Model")}</p>
+                  <p className="text-[13px] text-white/90 font-medium">{selectedImage.model || "Kiara Z MAX"}</p>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+
+                {selectedImage.createdAt && (
                   <div>
-                    <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-1 block">{t("Model")}</label>
-                    <p className="text-sm text-white">{selectedImage.model || t("Standard")}</p>
+                    <p className="text-[10px] font-bold text-white/25 uppercase tracking-[0.2em] mb-1.5">{t("Created")}</p>
+                    <p className="text-[13px] text-white/90 font-medium">
+                      {new Date(selectedImage.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      {" "}
+                      <span className="text-white/40">
+                        {new Date(selectedImage.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </p>
                   </div>
-                  <div>
-                    <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-1 block">{t("Date")}</label>
-                    <p className="text-sm text-white">{new Date(selectedImage.createdAt).toLocaleDateString()}</p>
-                  </div>
-                </div>
+                )}
               </div>
-              <button
-                onClick={() => window.open(selectedImage.imageUrl, '_blank')}
-                className="w-full py-4 bg-white text-black rounded-xl font-bold hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2 mt-4"
-              >
-                <Download size={18} /> {t("Download")}
-              </button>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  onClick={() => downloadImage(selectedImage.imageUrl)}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white text-black text-[11px] font-bold uppercase tracking-wider hover:bg-zinc-200 transition-all duration-200"
+                >
+                  <Download size={13} /> {t("Download")}
+                </button>
+                <button
+                  className="w-10 h-10 rounded-full bg-white/[0.06] hover:bg-pink-500/10 border border-white/[0.06] hover:border-pink-400/30 flex items-center justify-center text-white/40 hover:text-pink-400 transition-all duration-200"
+                >
+                  <Heart size={15} />
+                </button>
+                <button
+                  onClick={() => handleDeleteGalleryImage(selectedImage.id)}
+                  className="w-10 h-10 rounded-full bg-white/[0.06] hover:bg-red-500/10 border border-white/[0.06] hover:border-red-400/30 flex items-center justify-center text-white/40 hover:text-red-400 transition-all duration-200"
+                  title={t("Delete")}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -619,8 +947,7 @@ export const ModelsPage = () => {
   const streamingMessageIdRef = useRef<string | null>(null);
 
   // Lightbox
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
-  const [lightboxPrompt, setLightboxPrompt] = useState("");
+  const [lightboxImage, setLightboxImage] = useState<LightboxImage | null>(null);
 
   // Settings & Model Selection
   const [showSettings, setShowSettings] = useState(false);
@@ -660,8 +987,8 @@ export const ModelsPage = () => {
       showNotification("Only .safetensors files are supported", "warning", "LoRA Upload");
       return;
     }
-    if (file.size > 500 * 1024 * 1024) {
-      showNotification("File too large. Maximum 500MB.", "warning", "LoRA Upload");
+    if (file.size > 200 * 1024 * 1024) {
+      showNotification("File too large. Maximum 200MB.", "warning", "LoRA Upload");
       return;
     }
 
@@ -669,32 +996,17 @@ export const ModelsPage = () => {
     setUploadProgress(0);
 
     try {
-      // Step 1: Compute MD5
-      const md5Hex = await computeFileMD5(file);
-      setUploadProgress(5);
-
-      // Step 2: Get presigned URL from RunningHub
-      const initResult = await initLoRAUpload({
-        lora_name: file.name.replace(/\.safetensors$/i, ""),
-        md5_hex: md5Hex,
-        file_size_bytes: file.size,
-      });
-      setUploadProgress(10);
-
-      // Step 3: Upload file directly to presigned URL
-      await uploadFileToPresignedUrl(initResult.upload_url, file, (percent) => {
-        setUploadProgress(10 + Math.round(percent * 0.85)); // 10-95%
-      });
-      setUploadProgress(95);
-
-      // Step 4: Confirm upload
-      await confirmLoRAUpload(initResult.lora_id);
+      const result = await uploadLoRA(
+        file,
+        { lora_name: file.name.replace(/\.safetensors$/i, "") },
+        (percent) => setUploadProgress(percent)
+      );
       setUploadProgress(100);
 
       // Refresh list and auto-select
-      const result = await listUserLoRAs();
-      setUserLoRAs(result.loras || []);
-      setSelectedLoRA(initResult.lora_id);
+      const listResult = await listUserLoRAs();
+      setUserLoRAs(listResult.loras || []);
+      setSelectedLoRA(result.lora_id);
 
       showNotification("LoRA uploaded successfully!", "success", "LoRA Upload");
     } catch (err: any) {
@@ -703,6 +1015,30 @@ export const ModelsPage = () => {
     } finally {
       setIsUploadingLoRA(false);
       setUploadProgress(null);
+    }
+  };
+
+  // Delete session image (just remove from state)
+  const handleDeleteSessionImage = (imageId: string) => {
+    setGeneratedSessionImages((prev) => prev.filter((img) => img.id !== imageId));
+    if (lightboxImage?.id === imageId) setLightboxImage(null);
+    showNotification("Image removed", "success", "Delete");
+  };
+
+  // Delete DB image (remove from Supabase + refresh)
+  const handleDeleteDBImage = async (imageId: string) => {
+    try {
+      const { error } = await supabase
+        .from("ai_generation_outputs")
+        .delete()
+        .eq("id", imageId);
+      if (error) throw error;
+      setLatestGenerations((prev) => prev.filter((img) => img.id !== imageId));
+      if (lightboxImage?.id === imageId) setLightboxImage(null);
+      showNotification("Image deleted", "success", "Delete");
+    } catch (err: any) {
+      console.error("Delete failed:", err);
+      showNotification(err.message || "Failed to delete image", "error", "Delete");
     }
   };
 
@@ -929,6 +1265,9 @@ export const ModelsPage = () => {
             url,
             prompt: userMsg,
             createdAt: new Date().toISOString(),
+            model: selectedModel,
+            aspectRatio: imageRatio,
+            resolution: imageResolution,
           }));
           setGeneratedSessionImages((prev) => [...generated, ...prev]);
           void fetchLatestGenerations();
@@ -1080,13 +1419,13 @@ export const ModelsPage = () => {
                   </div>
                 )}
 
-                {/* Images Grid — clean on background */}
+                {/* Images Grid */}
                 {(generatedSessionImages.length > 0 || latestGenerations.length > 0 || isGenerating) && (
-                  <div className="grid grid-cols-5 gap-3">
-                    {/* Loading skeletons first */}
+                  <div className="grid grid-cols-5 gap-2.5">
+                    {/* Loading skeletons */}
                     {isGenerating && Array.from({ length: Math.min(5, generationSettings.numberOfImages) }).map((_, idx) => (
-                      <div key={`pending-${idx}`} className="aspect-square bg-white/5 rounded-xl border border-white/10 animate-pulse flex items-center justify-center">
-                        <div className="w-6 h-6 border-2 border-white/10 border-t-white/40 rounded-full animate-spin" />
+                      <div key={`pending-${idx}`} className="aspect-square bg-[#111] rounded-2xl border border-white/[0.04] flex items-center justify-center">
+                        <div className="w-5 h-5 border-[1.5px] border-white/10 border-t-white/50 rounded-full animate-spin" />
                       </div>
                     ))}
 
@@ -1094,26 +1433,98 @@ export const ModelsPage = () => {
                     {generatedSessionImages.map((img) => (
                       <div
                         key={img.id}
-                        onClick={() => { setLightboxUrl(img.url); setLightboxPrompt(img.prompt); }}
-                        className="aspect-square bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-white/20 transition-all duration-300 relative group cursor-pointer"
+                        className="aspect-square bg-[#0a0a0a] rounded-2xl overflow-hidden relative group cursor-pointer border border-white/[0.04] hover:border-white/[0.12] transition-all duration-500"
                       >
-                        <img src={img.url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-4 flex flex-col justify-end">
-                          <p className="text-[10px] text-white/80 line-clamp-2">{img.prompt}</p>
+                        <img
+                          src={img.url}
+                          onClick={() => setLightboxImage({ id: img.id, url: img.url, prompt: img.prompt, model: img.model, aspectRatio: img.aspectRatio, resolution: img.resolution, createdAt: img.createdAt, isSession: true })}
+                          className="w-full h-full object-cover transition-all duration-700 group-hover:scale-[1.03]"
+                          loading="lazy"
+                        />
+                        {/* Model label — bottom left */}
+                        <div className="absolute bottom-0 left-0 right-0 px-3 pb-2.5 pt-8 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none">
+                          <span className="text-[10px] font-medium text-white/70 tracking-wide">{img.model || "Kiara Z MAX"}</span>
+                        </div>
+                        {/* Action buttons — right side */}
+                        <div className="absolute top-2.5 right-2.5 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); /* TODO: like */ }}
+                            className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-pink-400 hover:border-pink-400/30 hover:bg-pink-500/10 transition-all duration-200"
+                            title="Like"
+                          >
+                            <Heart size={12} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); downloadImage(img.url); }}
+                            className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:border-white/30 transition-all duration-200"
+                            title="Download"
+                          >
+                            <Download size={12} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteSessionImage(img.id); }}
+                            className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-red-400 hover:border-red-400/30 hover:bg-red-500/10 transition-all duration-200"
+                            title="Delete"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); /* TODO: menu */ }}
+                            className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:border-white/30 transition-all duration-200"
+                            title="More"
+                          >
+                            <Ellipsis size={12} />
+                          </button>
                         </div>
                       </div>
                     ))}
 
-                    {/* Previously generated images from DB */}
+                    {/* DB images */}
                     {latestGenerations.map((img) => (
                       <div
                         key={img.id}
-                        onClick={() => { setLightboxUrl(img.imageUrl); setLightboxPrompt(img.prompt); }}
-                        className="aspect-square bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-white/20 transition-all duration-300 relative group cursor-pointer"
+                        className="aspect-square bg-[#0a0a0a] rounded-2xl overflow-hidden relative group cursor-pointer border border-white/[0.04] hover:border-white/[0.12] transition-all duration-500"
                       >
-                        <img src={img.imageUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-4 flex flex-col justify-end">
-                          <p className="text-[10px] text-white/80 line-clamp-2">{img.prompt}</p>
+                        <img
+                          src={img.imageUrl}
+                          onClick={() => setLightboxImage({ id: img.id, url: img.imageUrl, prompt: img.prompt, model: img.model, createdAt: img.createdAt, isSession: false })}
+                          className="w-full h-full object-cover transition-all duration-700 group-hover:scale-[1.03]"
+                          loading="lazy"
+                        />
+                        {/* Model label — bottom left */}
+                        <div className="absolute bottom-0 left-0 right-0 px-3 pb-2.5 pt-8 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none">
+                          <span className="text-[10px] font-medium text-white/70 tracking-wide">{img.model || "Kiara Z MAX"}</span>
+                        </div>
+                        {/* Action buttons — right side */}
+                        <div className="absolute top-2.5 right-2.5 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); }}
+                            className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-pink-400 hover:border-pink-400/30 hover:bg-pink-500/10 transition-all duration-200"
+                            title="Like"
+                          >
+                            <Heart size={12} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); downloadImage(img.imageUrl); }}
+                            className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:border-white/30 transition-all duration-200"
+                            title="Download"
+                          >
+                            <Download size={12} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteDBImage(img.id); }}
+                            className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-red-400 hover:border-red-400/30 hover:bg-red-500/10 transition-all duration-200"
+                            title="Delete"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); }}
+                            className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:border-white/30 transition-all duration-200"
+                            title="More"
+                          >
+                            <Ellipsis size={12} />
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -1163,7 +1574,7 @@ export const ModelsPage = () => {
         </div>
 
         {/* Chat Messages */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 custom-scrollbar">
+        <div data-no-translate="true" className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 custom-scrollbar">
           {messages.length === 0 ? (
             <div className="flex flex-col h-full justify-center">
               <div className="px-4 space-y-3">
@@ -1273,32 +1684,146 @@ export const ModelsPage = () => {
       </div>
 
       {/* Lightbox */}
-      {lightboxUrl && (
+      {lightboxImage && (
         <div
-          className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-xl flex items-center justify-center p-8 animate-fadeIn"
-          onClick={() => setLightboxUrl(null)}
+          className="fixed inset-0 z-[200] bg-black/97 backdrop-blur-2xl flex items-center justify-center animate-fadeIn"
+          onClick={() => setLightboxImage(null)}
         >
+          {/* Close — bigger hit area */}
           <button
-            onClick={() => setLightboxUrl(null)}
-            className="absolute top-6 right-6 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10"
+            onClick={(e) => { e.stopPropagation(); setLightboxImage(null); }}
+            className="absolute top-5 right-5 w-12 h-12 rounded-full bg-white/[0.06] hover:bg-white/[0.15] flex items-center justify-center text-white/50 hover:text-white transition-all duration-200 z-20 cursor-pointer"
           >
             <X size={20} />
           </button>
-          <div className="max-w-[90vw] max-h-[85vh] flex flex-col items-center gap-4" onClick={(e) => e.stopPropagation()}>
-            <img
-              src={lightboxUrl}
-              className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl"
-              alt=""
-            />
-            {lightboxPrompt && (
-              <p className="text-xs text-zinc-400 max-w-lg text-center line-clamp-2">{lightboxPrompt}</p>
-            )}
-            <button
-              onClick={() => window.open(lightboxUrl, "_blank")}
-              className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold uppercase tracking-wider transition-colors"
-            >
-              <Download size={14} /> {t("Download")}
-            </button>
+
+          <div className="flex items-center gap-16 max-w-[90vw] max-h-[88vh] px-12" onClick={(e) => e.stopPropagation()}>
+            {/* Image */}
+            <div className="flex-shrink-0 max-w-[60vw] max-h-[85vh] flex items-center justify-center">
+              <img
+                src={lightboxImage.url}
+                className="max-w-full max-h-[85vh] object-contain rounded-xl"
+                alt=""
+              />
+            </div>
+
+            {/* Metadata */}
+            <div className="flex-shrink-0 w-[280px] flex flex-col justify-center py-8 space-y-10">
+              {/* Prompt */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] font-bold text-white/25 uppercase tracking-[0.2em]">Prompt</p>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(lightboxImage.prompt || "");
+                      showNotification("Prompt copied!", "success", "Clipboard");
+                    }}
+                    className="w-6 h-6 rounded-md bg-white/[0.04] hover:bg-white/[0.1] flex items-center justify-center text-white/30 hover:text-white/70 transition-all duration-200"
+                    title="Copy prompt"
+                  >
+                    <Copy size={11} />
+                  </button>
+                </div>
+                <p className="text-[13px] text-white/80 font-light leading-[1.7]">{lightboxImage.prompt}</p>
+              </div>
+
+              {/* Details */}
+              <div className="space-y-5">
+                <div>
+                  <p className="text-[10px] font-bold text-white/25 uppercase tracking-[0.2em] mb-1.5">Model</p>
+                  <p className="text-[13px] text-white/90 font-medium">{lightboxImage.model || "Kiara Z MAX"}</p>
+                </div>
+
+                <div className="flex gap-10">
+                  {lightboxImage.aspectRatio && (
+                    <div>
+                      <p className="text-[10px] font-bold text-white/25 uppercase tracking-[0.2em] mb-1.5">Ratio</p>
+                      <p className="text-[13px] text-white/90 font-medium">{lightboxImage.aspectRatio}</p>
+                    </div>
+                  )}
+                  {lightboxImage.resolution && (
+                    <div>
+                      <p className="text-[10px] font-bold text-white/25 uppercase tracking-[0.2em] mb-1.5">Quality</p>
+                      <p className="text-[13px] text-white/90 font-medium">{lightboxImage.resolution === "2k" ? "2K Ultra" : "1K Standard"}</p>
+                    </div>
+                  )}
+                </div>
+
+                {lightboxImage.createdAt && (
+                  <div>
+                    <p className="text-[10px] font-bold text-white/25 uppercase tracking-[0.2em] mb-1.5">Created</p>
+                    <p className="text-[13px] text-white/90 font-medium">
+                      {new Date(lightboxImage.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      {" "}
+                      <span className="text-white/40">
+                        {new Date(lightboxImage.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="space-y-3 pt-2">
+                {/* Recreate — primary action */}
+                <button
+                  onClick={() => {
+                    // Load all settings from this image
+                    if (lightboxImage.prompt) setChatInput(lightboxImage.prompt);
+                    if (lightboxImage.model) setSelectedModel(lightboxImage.model);
+                    if (lightboxImage.aspectRatio) setImageRatio(lightboxImage.aspectRatio);
+                    if (lightboxImage.resolution) setImageResolution(lightboxImage.resolution);
+                    // Switch to freestyle mode for direct generation
+                    setVisionMode(false);
+                    setLightboxImage(null);
+                    // Focus the input after a tick
+                    setTimeout(() => bottomTextareaRef.current?.focus(), 100);
+                    showNotification("Settings loaded — ready to recreate!", "success", "Recreate");
+                  }}
+                  className="w-full flex items-center justify-center gap-2.5 px-5 py-3 rounded-full bg-white text-black text-[11px] font-bold uppercase tracking-wider hover:bg-zinc-200 transition-all duration-200"
+                >
+                  <RotateCcw size={13} /> Recreate
+                </button>
+
+                <div className="flex items-center gap-2.5">
+                  {/* Download */}
+                  <button
+                    onClick={() => downloadImage(lightboxImage.url)}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-white/[0.06] border border-white/[0.06] text-white/70 text-[11px] font-bold uppercase tracking-wider hover:bg-white/[0.12] hover:text-white transition-all duration-200"
+                  >
+                    <Download size={13} /> Download
+                  </button>
+                  {/* Like */}
+                  <button
+                    onClick={() => { /* TODO: like */ }}
+                    className="w-10 h-10 rounded-full bg-white/[0.06] hover:bg-pink-500/10 border border-white/[0.06] hover:border-pink-400/30 flex items-center justify-center text-white/40 hover:text-pink-400 transition-all duration-200"
+                  >
+                    <Heart size={15} />
+                  </button>
+                  {/* Delete */}
+                  <button
+                    onClick={() => {
+                      if (lightboxImage.isSession) {
+                        handleDeleteSessionImage(lightboxImage.id);
+                      } else {
+                        handleDeleteDBImage(lightboxImage.id);
+                      }
+                    }}
+                    className="w-10 h-10 rounded-full bg-white/[0.06] hover:bg-red-500/10 border border-white/[0.06] hover:border-red-400/30 flex items-center justify-center text-white/40 hover:text-red-400 transition-all duration-200"
+                    title="Delete"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                  {/* More */}
+                  <button
+                    onClick={() => { /* TODO: more menu */ }}
+                    className="w-10 h-10 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.06] hover:border-white/[0.15] flex items-center justify-center text-white/40 hover:text-white transition-all duration-200"
+                  >
+                    <Ellipsis size={15} />
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

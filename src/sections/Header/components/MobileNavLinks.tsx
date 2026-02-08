@@ -1,8 +1,10 @@
+import { Link } from "react-router-dom";
+
 export const MobileNavLinks = () => {
   return (
     <div className="box-border caret-transparent flex min-h-[auto] min-w-[auto] ml-2 md:min-h-0 md:min-w-0">
-      <a
-        href="/"
+      <Link
+        to="/"
         className="text-white font-semibold items-center box-border caret-transparent flex flex-col justify-center min-h-[auto] min-w-[auto] text-center w-16 py-2 rounded-2xl md:min-h-0 md:min-w-0 hover:bg-zinc-900"
       >
         <img
@@ -13,9 +15,9 @@ export const MobileNavLinks = () => {
         <div className="relative text-xs box-border caret-transparent leading-4 min-h-[auto] min-w-[auto] md:min-h-0 md:min-w-0">
           Explore
         </div>
-      </a>
-      <a
-        href="/assistant"
+      </Link>
+      <Link
+        to="/assistant"
         className="text-white font-semibold items-center box-border caret-transparent flex flex-col justify-center min-h-[auto] min-w-[auto] text-center w-16 py-2 rounded-2xl md:min-h-0 md:min-w-0 hover:bg-zinc-900"
       >
         <img
@@ -26,9 +28,9 @@ export const MobileNavLinks = () => {
         <div className="relative text-xs box-border caret-transparent leading-4 min-h-[auto] min-w-[auto] md:min-h-0 md:min-w-0">
           Assistant
         </div>
-      </a>
-      <a
-        href="#"
+      </Link>
+      <button
+        type="button"
         className="relative text-white font-semibold items-center box-border caret-transparent flex flex-col justify-center min-h-[auto] min-w-[auto] text-center w-16 py-2 rounded-2xl md:min-h-0 md:min-w-0 hover:bg-zinc-900"
       >
         <img
@@ -39,9 +41,9 @@ export const MobileNavLinks = () => {
         <div className="relative text-xs box-border caret-transparent leading-4 min-h-[auto] min-w-[auto] md:min-h-0 md:min-w-0">
           Tweak
         </div>
-      </a>
-      <a
-        href="#"
+      </button>
+      <button
+        type="button"
         className="relative text-white font-semibold items-center box-border caret-transparent flex flex-col justify-center min-h-[auto] min-w-[auto] text-center w-16 py-2 rounded-2xl md:min-h-0 md:min-w-0 hover:bg-zinc-900"
       >
         <img
@@ -52,7 +54,7 @@ export const MobileNavLinks = () => {
         <div className="relative text-xs box-border caret-transparent leading-4 min-h-[auto] min-w-[auto] md:min-h-0 md:min-w-0">
           Chat
         </div>
-      </a>
+      </button>
     </div>
   );
 };

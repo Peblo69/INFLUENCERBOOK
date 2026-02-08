@@ -3,37 +3,46 @@ import { useCallback, useRef } from "react";
 /**
  * ResizeObserver-based auto-scroll hook.
  *
- * Instead of using useEffect([messages]) which fires on every React state
- * update (20x/sec during streaming → forced layout reflows), this hook
- * uses a ResizeObserver on the content container. The browser only fires
- * the observer callback when the DOM actually changes size, naturally
- * batching rapid streaming updates into fewer scroll operations.
- *
- * Returns two callback-refs:
- *   - scrollRef  → attach to the scroll container (overflow-y-auto div)
- *   - contentRef → attach to the inner content wrapper
+ * FIXES:
+ * - Uses rAF-coalesced scrolling instead of direct scrollTop assignment
+ *   in the ResizeObserver callback (avoids forced sync layout per observation)
+ * - Increased bottom-detection threshold to 50px to prevent auto-scroll
+ *   from disabling during fast content growth (content can outrun scroll)
+ * - snapToBottom uses instant scroll (no animation lag on send)
  */
 export function useSnapScroll() {
   const autoScrollRef = useRef(true);
   const scrollNodeRef = useRef<HTMLDivElement | null>(null);
   const onScrollRef = useRef<(() => void) | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
 
   // Callback-ref for the inner content container.
-  // A ResizeObserver watches its size — when content grows (new tokens,
-  // images loading, code blocks expanding), it snaps to bottom.
   const contentRef = useCallback((node: HTMLDivElement | null) => {
     if (observerRef.current) {
       observerRef.current.disconnect();
       observerRef.current = null;
     }
+    if (scrollRafRef.current) {
+      cancelAnimationFrame(scrollRafRef.current);
+      scrollRafRef.current = null;
+    }
 
     if (node) {
       const observer = new ResizeObserver(() => {
-        if (autoScrollRef.current && scrollNodeRef.current) {
-          const { scrollHeight, clientHeight } = scrollNodeRef.current;
-          scrollNodeRef.current.scrollTop = scrollHeight - clientHeight;
-        }
+        if (!autoScrollRef.current || !scrollNodeRef.current) return;
+
+        // Coalesce multiple ResizeObserver fires into a single rAF
+        // This prevents layout thrashing when multiple elements resize
+        // in the same frame (e.g. code blocks + text growing together)
+        if (scrollRafRef.current) return; // already scheduled
+
+        scrollRafRef.current = requestAnimationFrame(() => {
+          scrollRafRef.current = null;
+          if (!autoScrollRef.current || !scrollNodeRef.current) return;
+          const el = scrollNodeRef.current;
+          el.scrollTop = el.scrollHeight - el.clientHeight;
+        });
       });
       observer.observe(node);
       observerRef.current = observer;
@@ -41,10 +50,7 @@ export function useSnapScroll() {
   }, []);
 
   // Callback-ref for the outer scroll container.
-  // A scroll event listener detects whether the user scrolled away from
-  // the bottom (disabling auto-scroll) or back to it (re-enabling).
   const scrollRef = useCallback((node: HTMLDivElement | null) => {
-    // Cleanup previous
     if (onScrollRef.current && scrollNodeRef.current) {
       scrollNodeRef.current.removeEventListener("scroll", onScrollRef.current);
     }
@@ -55,8 +61,9 @@ export function useSnapScroll() {
       const handler = () => {
         const { scrollTop, scrollHeight, clientHeight } = node;
         const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
-        // 10px threshold — if within 10px of bottom, auto-scroll stays on
-        autoScrollRef.current = distanceFromBottom <= 10;
+        // 50px threshold — content can grow faster than scroll updates,
+        // so a tight threshold (10px) causes auto-scroll to falsely disable
+        autoScrollRef.current = distanceFromBottom <= 50;
       };
       node.addEventListener("scroll", handler, { passive: true });
       onScrollRef.current = handler;
@@ -68,12 +75,11 @@ export function useSnapScroll() {
   const snapToBottom = useCallback(() => {
     autoScrollRef.current = true;
     if (scrollNodeRef.current) {
-      const { scrollHeight, clientHeight } = scrollNodeRef.current;
-      scrollNodeRef.current.scrollTop = scrollHeight - clientHeight;
+      const el = scrollNodeRef.current;
+      el.scrollTop = el.scrollHeight - el.clientHeight;
     }
   }, []);
 
-  // Expose the auto-scroll state for UI (scroll-to-bottom button)
   const isAutoScrolling = useCallback(() => autoScrollRef.current, []);
 
   return { scrollRef, contentRef, snapToBottom, isAutoScrolling };

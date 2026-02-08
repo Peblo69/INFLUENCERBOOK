@@ -5,7 +5,7 @@ import { Footer } from "@/sections/Footer";
 import { useAuth } from "@/contexts/AuthContext";
 import { useI18n } from "@/contexts/I18nContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+// LanguageSwitcher is now embedded in each page's navbar/sidebar
 import { DomAutoTranslator } from "@/components/DomAutoTranslator";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -26,24 +26,60 @@ import { App as LandingApp } from "@/Landing Example/www.imagine.art_rpc6do/src/
 import { AuthPage } from "@/sections/AuthPage";
 import { AssistantPage } from "@/sections/AssistantPage";
 import { ModelsPage } from "@/sections/ModelsPage";
+import { InfluencersPage } from "@/sections/InfluencersPage";
 import { MainContent } from "@/sections/MainContent";
 
 // ── Lazy loaded (secondary pages) ──
-const LazyLibrary = lazy(() => import("@/sections/LibraryPage").then(m => ({ default: m.LibraryPage })));
-const LazyUploads = lazy(() => import("@/sections/UploadsPage").then(m => ({ default: m.UploadsPage })));
-const LazySettings = lazy(() => import("@/sections/SettingsPage").then(m => ({ default: m.SettingsPage })));
-const LazyBilling = lazy(() => import("@/sections/BillingPage").then(m => ({ default: m.BillingPage })));
-const LazyInvoices = lazy(() => import("@/sections/InvoicesPage").then(m => ({ default: m.InvoicesPage })));
-const LazySocial = lazy(() => import("@/sections/SocialFeedPage").then(m => ({ default: m.SocialFeedPage })));
-const LazyVideoEditor = lazy(() => import("@/sections/VideoEditorPage").then(m => ({ default: m.VideoEditorPage })));
-const LazyVideos = lazy(() => import("@/sections/VideosPage").then(m => ({ default: m.VideosPage })));
-const LazyStudioLabs = lazy(() => import("@/sections/KiaraStudioLabsPage").then(m => ({ default: m.KiaraStudioLabsPage })));
-const LazyInstallExt = lazy(() => import("@/sections/InstallExtensionPage").then(m => ({ default: m.InstallExtensionPage })));
+// Each import function is stored so we can prefetch on idle
+const importLibrary = () => import("@/sections/LibraryPage").then(m => ({ default: m.LibraryPage }));
+const importUploads = () => import("@/sections/UploadsPage").then(m => ({ default: m.UploadsPage }));
+const importSettings = () => import("@/sections/SettingsPage").then(m => ({ default: m.SettingsPage }));
+const importBilling = () => import("@/sections/BillingPage").then(m => ({ default: m.BillingPage }));
+const importInvoices = () => import("@/sections/InvoicesPage").then(m => ({ default: m.InvoicesPage }));
+const importSocial = () => import("@/sections/SocialFeedPage").then(m => ({ default: m.SocialFeedPage }));
+const importVideoEditor = () => import("@/sections/VideoEditorPage").then(m => ({ default: m.VideoEditorPage }));
+const importVideos = () => import("@/sections/VideosPage").then(m => ({ default: m.VideosPage }));
+const importStudioLabs = () => import("@/sections/KiaraStudioLabsPage").then(m => ({ default: m.KiaraStudioLabsPage }));
+const importInstallExt = () => import("@/sections/InstallExtensionPage").then(m => ({ default: m.InstallExtensionPage }));
 
-// Minimal loading component - no full screen spinner
+const LazyLibrary = lazy(importLibrary);
+const LazyUploads = lazy(importUploads);
+const LazySettings = lazy(importSettings);
+const LazyBilling = lazy(importBilling);
+const LazyInvoices = lazy(importInvoices);
+const LazySocial = lazy(importSocial);
+const LazyVideoEditor = lazy(importVideoEditor);
+const LazyVideos = lazy(importVideos);
+const LazyStudioLabs = lazy(importStudioLabs);
+const LazyInstallExt = lazy(importInstallExt);
+
+// Prefetch all lazy chunks after the app loads — pages will be instant
+if (typeof window !== "undefined") {
+  const prefetchAll = () => {
+    importLibrary();
+    importUploads();
+    importSettings();
+    importBilling();
+    importInvoices();
+    importSocial();
+    importVideoEditor();
+    importVideos();
+    importStudioLabs();
+    importInstallExt();
+  };
+  if ("requestIdleCallback" in window) {
+    (window as any).requestIdleCallback(prefetchAll, { timeout: 5000 });
+  } else {
+    setTimeout(prefetchAll, 3000);
+  }
+}
+
+// Dark-themed loading — matches UI, no white flash
 const RouteLoading = () => (
-  <div className="flex-1 flex items-center justify-center">
-    <div className="w-8 h-8 border-2 border-white/10 border-t-white rounded-full animate-spin" />
+  <div className="flex-1 flex items-center justify-center bg-black min-h-screen">
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-6 h-6 border-2 border-white/10 border-t-white/40 rounded-full animate-spin" />
+    </div>
   </div>
 );
 
@@ -55,6 +91,7 @@ const AppFrame = () => {
     "/images",
     "/kiara-studio",
     "/kiara-studio-labs",
+    "/influencers",
   ]);
   const hideHeader = hideHeaderRoutes.has(location.pathname);
 
@@ -372,6 +409,13 @@ export const App = () => {
             opacity: 0.4;
           }
 
+          /* GPU-accelerate all star layers to prevent blocking page renders */
+          .stars-layer-1, .stars-layer-2, .stars-layer-3, .stars-layer-tiny {
+            will-change: opacity;
+            contain: strict;
+            pointer-events: none;
+          }
+
           .stars-layer-tiny {
             background-image:
               radial-gradient(0.5px 0.5px at 25% 35%, white, transparent),
@@ -418,7 +462,6 @@ export const App = () => {
 
         <div className="box-border caret-transparent relative z-10">
           <DomAutoTranslator />
-          <LanguageSwitcher />
           <AppRoutes />
         </div>
         <div className="absolute box-border caret-transparent block"></div>

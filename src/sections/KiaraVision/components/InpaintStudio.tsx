@@ -3,10 +3,12 @@ import type { ReactNode } from "react";
 import {
   Brush,
   Circle,
+  Download,
   Droplet,
   Eraser,
   Eye,
   Hand,
+  ImagePlus,
   Layers,
   MousePointer2,
   Redo,
@@ -20,6 +22,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { useI18n } from "@/contexts/I18nContext";
+import { kiaraInpaint } from "@/services/kiaraGateway";
 
 const inpaintStyles = `
   .font-display {
@@ -51,7 +54,13 @@ const inpaintStyles = `
 
 export const InpaintStudio = () => {
   const { t } = useI18n();
-  const image = "https://picsum.photos/seed/portrait_woman/1920/1080";
+
+  // Image state (replaces hardcoded URL)
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [previousImageSrc, setPreviousImageSrc] = useState<string | null>(null);
+  const [imageDimensions, setImageDimensions] = useState({ w: 0, h: 0 });
+  const [error, setError] = useState<string | null>(null);
+
   const [tool, setTool] = useState<"brush" | "eraser" | "pan" | "select">("brush");
 
   const [brushSize, setBrushSize] = useState(80);
@@ -75,12 +84,101 @@ export const InpaintStudio = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastPos = useRef<{ x: number; y: number } | null>(null);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageLoad = () => {
     if (canvasRef.current && imageRef.current) {
       canvasRef.current.width = imageRef.current.naturalWidth;
       canvasRef.current.height = imageRef.current.naturalHeight;
+      setImageDimensions({
+        w: imageRef.current.naturalWidth,
+        h: imageRef.current.naturalHeight,
+      });
     }
+  };
+
+  // Upload image from file picker or drag-drop
+  const handleFileUpload = (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    setPreviousImageSrc(imageSrc);
+    setImageSrc(url);
+    clearCanvas();
+    setError(null);
+  };
+
+  // Export original image as base64 data URI
+  const exportImageAsDataUri = (): string => {
+    const img = imageRef.current!;
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const ctx = c.getContext("2d")!;
+    ctx.drawImage(img, 0, 0);
+    return c.toDataURL("image/png");
+  };
+
+  // Export mask with inverted alpha (purple painted → transparent for OpenAI)
+  const exportMaskAsDataUri = (): string => {
+    const canvas = canvasRef.current!;
+    const c = document.createElement("canvas");
+    c.width = canvas.width;
+    c.height = canvas.height;
+    const ctx = c.getContext("2d")!;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.drawImage(canvas, 0, 0);
+    return c.toDataURL("image/png");
+  };
+
+  // Wire Generate button to OpenAI inpaint API
+  const handleGenerate = async () => {
+    if (!prompt.trim() || !imageSrc || isGenerating) return;
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const imageData = exportImageAsDataUri();
+      const maskData = exportMaskAsDataUri();
+      const result = await kiaraInpaint({
+        image: imageData,
+        mask: maskData,
+        prompt: prompt.trim(),
+        quality: "high",
+      });
+      if (result.success && result.output) {
+        setPreviousImageSrc(imageSrc);
+        setImageSrc(result.output);
+        clearCanvas();
+        setPrompt("");
+      } else {
+        setError("Generation returned no output");
+      }
+    } catch (err: any) {
+      console.error("[InpaintStudio] Generate error:", err);
+      setError(err.message || "Inpainting failed");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Download current image
+  const handleDownload = () => {
+    if (!imageSrc) return;
+    const a = document.createElement("a");
+    a.href = imageSrc;
+    a.download = `kiara-inpaint-${Date.now()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  // Undo — revert to previous image
+  const handleUndo = () => {
+    if (!previousImageSrc) return;
+    setImageSrc(previousImageSrc);
+    setPreviousImageSrc(null);
+    clearCanvas();
   };
 
   const getCanvasPoint = (clientX: number, clientY: number) => {
@@ -235,22 +333,67 @@ export const InpaintStudio = () => {
       </div>
 
       <div className="absolute top-0 left-0 right-0 h-16 px-6 flex items-center justify-between z-30 pointer-events-none">
-        <div className="pointer-events-auto flex items-center gap-4">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-lg shadow-xl ring-1 ring-white/5">
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-            <span className="text-[10px] font-bold text-zinc-300 font-display tracking-wider">1920 x 1080</span>
-          </div>
+        <div className="pointer-events-auto flex items-center gap-3">
+          {imageDimensions.w > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-lg shadow-xl ring-1 ring-white/5">
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+              <span className="text-[10px] font-bold text-zinc-300 font-display tracking-wider">{imageDimensions.w} x {imageDimensions.h}</span>
+            </div>
+          )}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-lg shadow-xl ring-1 ring-white/5 text-zinc-400 hover:text-white transition-colors"
+            title={imageSrc ? t("Change Image") : t("Upload Image")}
+          >
+            <ImagePlus size={13} />
+            <span className="text-[10px] font-bold font-display tracking-wider">{imageSrc ? t("Change") : t("Upload")}</span>
+          </button>
+          {imageSrc && (
+            <button
+              onClick={handleDownload}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-lg shadow-xl ring-1 ring-white/5 text-zinc-400 hover:text-white transition-colors"
+              title={t("Download")}
+            >
+              <Download size={13} />
+              <span className="text-[10px] font-bold font-display tracking-wider">{t("Save")}</span>
+            </button>
+          )}
         </div>
         <div className="pointer-events-auto flex gap-1 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-lg p-1 shadow-xl ring-1 ring-white/5">
-          <button className="p-2 text-zinc-400 hover:text-white rounded-md hover:bg-white/5 transition-colors" title={t("Undo")}>
+          <button
+            onClick={handleUndo}
+            disabled={!previousImageSrc}
+            className={`p-2 rounded-md hover:bg-white/5 transition-colors ${previousImageSrc ? 'text-zinc-400 hover:text-white' : 'text-zinc-700 cursor-not-allowed'}`}
+            title={t("Undo")}
+          >
             <Undo size={14} />
           </button>
           <div className="w-px h-auto bg-white/10 my-1" />
-          <button className="p-2 text-zinc-400 hover:text-white rounded-md hover:bg-white/5 transition-colors" title={t("Redo")}>
+          <button className="p-2 text-zinc-700 cursor-not-allowed rounded-md" title={t("Redo")}>
             <Redo size={14} />
           </button>
         </div>
       </div>
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+          e.target.value = "";
+        }}
+      />
+
+      {/* Error toast */}
+      {error && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-red-500/20 border border-red-500/30 rounded-lg backdrop-blur-md">
+          <span className="text-xs text-red-300 font-medium">{error}</span>
+          <button onClick={() => setError(null)} className="ml-3 text-red-400 hover:text-red-200 text-xs font-bold">✕</button>
+        </div>
+      )}
 
       <div className="absolute left-6 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-4">
         <div className="flex flex-col gap-1.5 bg-zinc-900/90 backdrop-blur-xl border border-white/10 p-1.5 rounded-xl shadow-2xl ring-1 ring-white/5">
@@ -364,7 +507,7 @@ export const InpaintStudio = () => {
             <div className="flex items-center gap-2 p-2 rounded-lg border border-transparent hover:bg-white/5 transition-colors cursor-pointer group">
               <Eye size={12} className="text-zinc-500 group-hover:text-zinc-300" />
               <div className="w-6 h-6 rounded bg-zinc-700 overflow-hidden">
-                <img src={image} alt={t("Original")} className="w-full h-full object-cover opacity-50" />
+                {imageSrc && <img src={imageSrc} alt={t("Original")} className="w-full h-full object-cover opacity-50" />}
               </div>
               <span className="text-xs font-medium text-zinc-500 group-hover:text-zinc-400 transition-colors">{t("Original")}</span>
             </div>
@@ -408,33 +551,46 @@ export const InpaintStudio = () => {
           />
         )}
 
-        <div
-          style={{
-            position: "absolute",
-            left: "50%",
-            top: "50%",
-            transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-            transformOrigin: "center center",
-          }}
-          className="shadow-2xl"
-        >
-          <img
-            ref={imageRef}
-            src={image}
-            alt={t("Workspace")}
-            className="block max-w-none pointer-events-none select-none shadow-[0_0_50px_rgba(0,0,0,0.5)]"
-            onLoad={handleImageLoad}
-            draggable={false}
-          />
+        {imageSrc && (
+          <div
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: "center center",
+            }}
+            className="shadow-2xl"
+          >
+            <img
+              ref={imageRef}
+              src={imageSrc}
+              alt={t("Workspace")}
+              crossOrigin="anonymous"
+              className="block max-w-none pointer-events-none select-none shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+              onLoad={handleImageLoad}
+              draggable={false}
+            />
 
-          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-        </div>
+            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+          </div>
+        )}
 
-        {!image && (
+        {!imageSrc && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="flex flex-col items-center justify-center border border-dashed border-zinc-800 rounded-2xl p-12 bg-zinc-900/50 pointer-events-auto cursor-pointer hover:border-purple-500/50 hover:bg-zinc-900/80 transition-all">
-              <Upload size={40} className="text-zinc-600 mb-4" />
-              <span className="text-zinc-400 font-bold font-display tracking-wide">{t("Upload Image")}</span>
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.dataTransfer.files?.[0]) handleFileUpload(e.dataTransfer.files[0]);
+              }}
+              className="flex flex-col items-center justify-center border border-dashed border-zinc-700 rounded-2xl p-16 bg-zinc-900/50 pointer-events-auto cursor-pointer hover:border-purple-500/50 hover:bg-zinc-900/80 transition-all group"
+            >
+              <Upload size={48} className="text-zinc-600 mb-4 group-hover:text-purple-400 transition-colors" />
+              <span className="text-zinc-400 font-bold font-display tracking-wide text-sm">{t("Upload Image")}</span>
+              <span className="text-zinc-600 text-xs mt-2 font-display">{t("Drop an image or click to browse")}</span>
             </div>
           </div>
         )}
@@ -460,19 +616,16 @@ export const InpaintStudio = () => {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                setIsGenerating(true);
-                setTimeout(() => setIsGenerating(false), 2000);
+                handleGenerate();
               }
             }}
           />
 
           <button
-            onClick={() => {
-              setIsGenerating(true);
-              setTimeout(() => setIsGenerating(false), 2000);
-            }}
+            onClick={handleGenerate}
+            disabled={isGenerating || !imageSrc || !prompt.trim()}
             className={`h-10 px-6 rounded-xl font-bold font-display uppercase tracking-wide text-xs transition-all duration-300 flex items-center gap-2 mb-[1px] ${
-              isGenerating
+              isGenerating || !imageSrc || !prompt.trim()
                 ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
                 : "bg-gradient-brand hover:bg-gradient-brand-hover text-black shadow-[0_0_20px_rgba(232,121,249,0.3)] hover:shadow-[0_0_30px_rgba(232,121,249,0.5)]"
             }`}

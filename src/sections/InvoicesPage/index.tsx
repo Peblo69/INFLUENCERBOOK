@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { StripeInvoice, createBillingPortalSession, listInvoices } from "@/services/stripeGateway";
 
@@ -104,9 +105,9 @@ export const InvoicesPage = () => {
           <div className="text-sm text-white/60">
             {lastUpdated ? `Last updated ${lastUpdated.toLocaleTimeString("en-US")}` : "Loading invoices..."}
           </div>
-          <a href="/billing" className="text-sm text-purple-300 hover:text-purple-200">
+          <Link to="/billing" className="text-sm text-purple-300 hover:text-purple-200">
             Back to billing
-          </a>
+          </Link>
         </div>
 
         {error && (

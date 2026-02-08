@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { useLocation } from "react-router-dom";
 import { useI18n } from "@/contexts/I18nContext";
 import { getLanguageDictionary } from "@/i18n/translations";
 
@@ -118,12 +117,37 @@ const processAttributes = (
   }
 };
 
-const applyDomTranslation = (dictionary: Record<string, string>, language: string) => {
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+const applyDomTranslationToRoot = (
+  root: Node,
+  dictionary: Record<string, string>,
+  language: string,
+) => {
+  if (root.nodeType === Node.TEXT_NODE) {
+    processTextNode(root as Text, dictionary, language);
+    return;
+  }
+
+  if (root.nodeType !== Node.ELEMENT_NODE && root.nodeType !== Node.DOCUMENT_NODE) {
+    return;
+  }
+
+  const rootElement = root as Element;
+  if (root.nodeType === Node.ELEMENT_NODE) {
+    processAttributes(rootElement, dictionary, language);
+  }
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let current = walker.nextNode();
   while (current) {
     processTextNode(current as Text, dictionary, language);
     current = walker.nextNode();
+  }
+
+  if (root.nodeType === Node.ELEMENT_NODE) {
+    rootElement.querySelectorAll("*").forEach((element) => {
+      processAttributes(element, dictionary, language);
+    });
+    return;
   }
 
   document.querySelectorAll("*").forEach((element) => {
@@ -131,9 +155,33 @@ const applyDomTranslation = (dictionary: Record<string, string>, language: strin
   });
 };
 
+const applyMutationBatch = (
+  mutations: MutationRecord[],
+  dictionary: Record<string, string>,
+  language: string,
+) => {
+  for (const mutation of mutations) {
+    if (mutation.type === "attributes") {
+      const target = mutation.target as Element;
+      processAttributes(target, dictionary, language);
+      continue;
+    }
+
+    if (mutation.type === "characterData") {
+      processTextNode(mutation.target as Text, dictionary, language);
+      continue;
+    }
+
+    if (mutation.type === "childList") {
+      mutation.addedNodes.forEach((node) => {
+        applyDomTranslationToRoot(node, dictionary, language);
+      });
+    }
+  }
+};
+
 export const DomAutoTranslator = () => {
   const { language } = useI18n();
-  const location = useLocation();
 
   useEffect(() => {
     if (typeof document === "undefined" || !document.body) {
@@ -141,31 +189,58 @@ export const DomAutoTranslator = () => {
     }
 
     const dictionary = getLanguageDictionary(language);
-    applyDomTranslation(dictionary, language);
+    applyDomTranslationToRoot(document.body, dictionary, language);
+    if (language === "en") {
+      return;
+    }
 
     let queued = false;
-    const observer = new MutationObserver(() => {
+    let timeoutId: number | null = null;
+    let idleId: number | null = null;
+    let pendingMutations: MutationRecord[] = [];
+
+    const flushMutations = () => {
+      queued = false;
+      const batch = pendingMutations;
+      pendingMutations = [];
+      if (!batch.length) return;
+      applyMutationBatch(batch, dictionary, language);
+    };
+
+    const scheduleFlush = () => {
       if (queued) {
         return;
       }
       queued = true;
-      window.setTimeout(() => {
-        queued = false;
-        applyDomTranslation(dictionary, language);
-      }, 80);
+      if ("requestIdleCallback" in window) {
+        idleId = (window as any).requestIdleCallback(flushMutations, { timeout: 120 });
+      } else {
+        timeoutId = window.setTimeout(flushMutations, 32);
+      }
+    };
+
+    const observer = new MutationObserver((mutations) => {
+      pendingMutations.push(...mutations);
+      scheduleFlush();
     });
 
     observer.observe(document.body, {
       childList: true,
       subtree: true,
-      characterData: true,
       attributes: true,
       attributeFilter: [...translatableAttributes],
     });
 
-    return () => observer.disconnect();
-  }, [language, location.pathname]);
+    return () => {
+      observer.disconnect();
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      if (idleId !== null && "cancelIdleCallback" in window) {
+        (window as any).cancelIdleCallback(idleId);
+      }
+    };
+  }, [language]);
 
   return null;
 };
-
