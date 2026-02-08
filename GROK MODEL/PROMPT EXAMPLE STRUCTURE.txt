@@ -1,0 +1,94 @@
+CAMERA:
+
+height near shoulder line; pitch ~0–2° upward (slight upward angle caused by walking toward camera); roll ~0–2° natural handheld tilt; distance ~1.6–2.0 m from subject; lens feel ~24–28mm eq smartphone wide lens; horizon mid frame; verticals slightly converging from handheld position—forbid auto-level; soft-focus smartphone optics with mild edge falloff; harsh daylight exposure causing blown-out highlights.
+
+FRAMING & ANCHORS:
+
+subject centered-right, ≈90% frame height; anchors:
+• extended left hand in foreground, partially obscuring lens
+• round wire-frame sunglasses catching bright light
+• dark blue mini dress with white spaghetti straps & white trim
+• gold pendant necklace centered on chest
+• gold bracelet + mixed gold/silver rings on hands
+• patterned shoulder bag at right hip
+• white sneakers at bottom frame
+• parking lot ground texture visible below
+• parked cars, trees, and distant building forming background
+• harsh sun producing deep shadows on pavement and body.
+
+AMBIENT & LIGHT — Auto (inferred):
+
+key harsh direct summer midday sunlight from upper-front-left;
+evidence:
+• blown-out highlights on forehead, cheeks, nose, and sunglasses
+• crushed blacks under chin, behind hair, and inside dress folds
+• sharp shadow of extended hand across frame
+• strong contrast edges along hair strands
+white balance warm-neutral (~5200–5800 K);
+exposure inconsistent due to phone auto-metering;
+visible sensor noise in darker areas despite bright light;
+optics render slightly soft.
+
+POSE (PSM):
+
+TORSO upright, walking forward;
+HIPS neutral;
+LEGS mid-stride;
+LEFT ARM extended toward camera, hand open and partly blocking lens;
+RIGHT ARM relaxed near side holding shoulder-bag strap;
+HEAD tilted slightly;
+GAZE directed straight into lens behind sunglasses;
+EXPRESSION wide, toothy smile conveying candid spontaneity.
+
+APPEARANCE:
+
+young blonde woman, slender build;
+long platinum-blonde hair illuminated strongly by overhead sun, catching bright highlights;
+face partly blown-out by harsh sunlight—reduced visible texture;
+round wire-frame sunglasses;
+natural skin tone but high contrast due to lighting;
+no visible piercings besides earrings implied by jewelry style;
+overall look: playful, casual, summery.
+
+WARDROBE & PROPS:
+
+garment:
+• dark blue mini dress with white spaghetti straps and white trim
+• white sneakers
+accessories:
+• gold pendant necklace
+• gold bracelet on wrist
+• multiple gold + silver rings
+• patterned shoulder bag
+props: none handheld.
+
+ENVIRONMENT:
+
+outdoor parking lot in summer daylight;
+visible trees in midground;
+multiple parked cars behind her;
+distant building facade visible above cars;
+pavement showing sunlit areas and deep shadows;
+everyday, casual outdoor public environment.
+
+FOCUS & RENDER:
+
+primary focus: central facial region, sunglasses, extended hand;
+secondary: dress trim, jewelry, bag, hair highlights;
+background slightly softened by smartphone depth falloff;
+blown highlights reduce microtexture;
+crushed blacks remove detail in shadows;
+visible sensor noise in darker midtones;
+overall soft smartphone sharpness.
+
+PROCESS:
+
+harsh daylight color profile;
+medium-high contrast;
+overexposed highlights;
+crushed shadow detail;
+slight haze from lens flare;
+visible noise from small smartphone sensor;
+HDR imperfect, leaving highlight clipping;
+natural handheld motion softness;
+authentic amateur smartphone capture.

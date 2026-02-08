@@ -1,0 +1,94 @@
+import React from 'react';
+import { LucideIcon } from 'lucide-react';
+
+export interface Size {
+  width: number;
+  height: number;
+}
+
+export interface Position {
+  x: number;
+  y: number;
+}
+
+export type AppId = 'terminal' | 'browser' | 'settings' | 'explorer' | 'notepad' | 'kiara' | 'photos' | 'media';
+
+export interface VirtualFile {
+  id: string;
+  name: string;
+  type: 'folder' | 'file';
+  fileType: 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'code' | 'unknown';
+  content?: string; // For text/code
+  url?: string; // For media/blobs
+  size?: string;
+  date: string;
+  appId?: AppId;
+}
+
+export interface FileSystemContextType {
+  files: VirtualFile[];
+  addFile: (file: VirtualFile) => void;
+  deleteFile: (id: string) => void;
+  updateFile: (id: string, updates: Partial<VirtualFile>) => void;
+  getFile: (id: string) => VirtualFile | undefined;
+}
+
+export type IconTheme = 'glass' | 'colorful' | 'matte';
+
+export interface SystemSettings {
+  brightness: number; // 0-100
+  volume: number; // 0-100
+  wallpaper: string; // CSS background property
+  wallpaperId: string; // ID to track selection
+  accentColor: string;
+  iconTheme: IconTheme;
+  isWifiEnabled: boolean;
+  isBluetoothEnabled: boolean;
+  darkMode: boolean;
+}
+
+export interface AppProps {
+  os: OSContextType;
+  fs: FileSystemContextType;
+  data?: any;
+  windowId: string;
+}
+
+export interface AppConfig {
+  id: AppId;
+  title: string;
+  icon: LucideIcon;
+  component: React.FC<AppProps>;
+  defaultSize: Size;
+  preferredPosition?: Position;
+  color: string; // Tailwind class or hex for Colorful theme
+}
+
+export interface WindowState {
+  id: string;
+  appId: AppId;
+  title: string;
+  position: Position;
+  size: Size;
+  zIndex: number;
+  isMinimized: boolean;
+  isMaximized: boolean;
+  isOpen: boolean;
+  data?: any;
+}
+
+export interface OSContextType {
+  windows: WindowState[];
+  activeWindowId: string | null;
+  isStartMenuOpen: boolean;
+  settings: SystemSettings;
+  setSettings: (updates: Partial<SystemSettings>) => void;
+  toggleStartMenu: () => void;
+  openApp: (appId: AppId, data?: any) => void;
+  closeWindow: (id: string) => void;
+  minimizeWindow: (id: string) => void;
+  maximizeWindow: (id: string) => void;
+  focusWindow: (id: string) => void;
+  updateWindowPosition: (id: string, pos: Position) => void;
+  updateWindowSize: (id: string, size: Size) => void;
+}

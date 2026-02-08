@@ -1,0 +1,191 @@
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  /* This font could not be included automatically because of legal reasons. Please add it manually or switch to another font */
+  font-family: '__Creepster_dfb5b5';
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  /* This font could not be included automatically because of legal reasons. Please add it manually or switch to another font */
+  font-family: '__Creepster_Fallback_dfb5b5';
+  
+  
+}
+
+@tailwind base;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 47.4% 11.2%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 47.4% 11.2%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+
+    --card: transparent;
+    --card-foreground: 222.2 47.4% 11.2%;
+
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    --destructive: 0 100% 50%;
+    --destructive-foreground: 210 40% 98%;
+
+    --ring: 215 20.2% 65.1%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+
+    --muted: 223 47% 11%;
+    --muted-foreground: 215.4 16.3% 56.9%;
+
+    --accent: 216 34% 17%;
+    --accent-foreground: 210 40% 98%;
+
+    --popover: 224 71% 4%;
+    --popover-foreground: 215 20.2% 65.1%;
+
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+
+    --card: 224 71% 4%;
+    --card-foreground: 213 31% 91%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 1.2%;
+
+    --secondary: 222.2 47.4% 11.2%;
+    --secondary-foreground: 210 40% 98%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+
+    --ring: 216 34% 17%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* ============================================================================
+   STREAMING FIXES - Prevent layout shifts and flinching
+   ============================================================================ */
+
+/* Smooth text rendering during streaming */
+.markdown-body {
+  /* Prevent layout shifts by ensuring consistent line height */
+  line-height: 1.75 !important;
+  /* Use subpixel rendering for smoother text */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ensure streaming content doesn't jump */
+.markdown-body * {
+  /* Prevent margin collapsing that causes jumps */
+  margin-top: 0;
+  /* Smooth transitions for element appearance */
+  transition: opacity 0.05s ease-out;
+}
+
+/* Code blocks during streaming - prevent height jumps */
+.markdown-body pre {
+  /* Consistent min-height to prevent jumps */
+  min-height: 3rem;
+  /* Contain layout changes */
+  contain: layout style;
+}
+
+/* Streaming cursor - smooth blinking */
+@keyframes cursor-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.streaming-cursor {
+  animation: cursor-pulse 1s ease-in-out infinite;
+}
+
+/* Prevent word-wrapping jumps during streaming */
+.streaming-text {
+  /* Keep words together during streaming */
+  word-break: break-word;
+  overflow-wrap: break-word;
+  /* Prevent orphans */
+  orphans: 2;
+  widows: 2;
+}
+
+/* Smooth scroll behavior for chat */
+.scroll-smooth-stream {
+  scroll-behavior: smooth;
+  /* Prevent scroll jank */
+  overscroll-behavior: contain;
+}
+
+/* Fix for Safari/iOS rendering issues during streaming */
+@supports (-webkit-touch-callout: none) {
+  .markdown-body {
+    /* iOS specific: prevent text selection during streaming */
+    -webkit-user-select: text;
+  }
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  .markdown-body * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ============================================================================
+   SCROLLBAR HIDING - Completely invisible scrollbar
+   ============================================================================ */
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.scrollbar-hide {
+  -ms-overflow-style: none !important;  /* IE and Edge */
+  scrollbar-width: none !important;  /* Firefox */
+}
+
+/* Ensure no scrollbar shows on hover either */
+.scrollbar-hide:hover::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+}

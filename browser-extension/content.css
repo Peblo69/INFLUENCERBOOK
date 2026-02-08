@@ -1,0 +1,131 @@
+/**
+ * Kiara Vision Browser Extension - Overlay Styles
+ */
+
+.kiara-vision-overlay {
+  position: absolute;
+  display: none;
+  z-index: 999999;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.kiara-vision-overlay:hover {
+  pointer-events: all;
+}
+
+/* Logo in top-right corner */
+.kiara-logo {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 48px;
+  height: 48px;
+  background: rgba(139, 92, 246, 0.95);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+  pointer-events: all;
+  backdrop-filter: blur(10px);
+}
+
+.kiara-logo:hover {
+  transform: scale(1.1);
+  background: rgba(139, 92, 246, 1);
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.4);
+}
+
+.kiara-logo:hover + .kiara-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* Menu dropdown */
+.kiara-menu {
+  position: absolute;
+  top: 64px;
+  right: 8px;
+  background: rgba(17, 24, 39, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 12px;
+  padding: 8px;
+  min-width: 220px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px);
+  transition: all 0.2s ease;
+  pointer-events: all;
+}
+
+.kiara-logo:hover + .kiara-menu,
+.kiara-menu:hover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* Menu buttons */
+.kiara-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.kiara-btn:hover {
+  background: rgba(139, 92, 246, 0.2);
+  transform: translateX(4px);
+}
+
+.kiara-btn:active {
+  transform: translateX(4px) scale(0.98);
+}
+
+.kiara-icon {
+  font-size: 18px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Animation */
+@keyframes kiaraFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.kiara-logo {
+  animation: kiaraFadeIn 0.2s ease;
+}
+
+/* Prevent conflicts with page styles */
+.kiara-vision-overlay * {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}

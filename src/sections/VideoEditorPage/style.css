@@ -1,0 +1,153 @@
+/* D:\GOONERPROJECT\src\sections\VideoEditorPage\style.css */
+
+/* --- SCROLLBAR --- */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.2);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+  border-radius: 4px;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.3);
+}
+
+/* --- GLASSMORPHISM LEVELS --- */
+
+/* Heavy Glass: For main panels (Sidebar, Headers) - Less transparent, High Blur */
+.glass-heavy {
+  background: rgba(10, 10, 12, 0.75); /* Darker, less transparent */
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.4);
+}
+
+/* Medium Glass: For cards and floating elements */
+.glass-medium {
+  background: rgba(20, 20, 25, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* --- IOS & 3D BUTTONS --- */
+
+/* iOS Style Action Button: Rounded, smooth, subtle gradient border effect */
+.btn-ios {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9999px; /* Full Pill */
+  color: #e4e4e7; /* Zinc-200 */
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Hover State: Lighter, Lift */
+.btn-ios:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
+/* Active State: Press In */
+.btn-ios:active {
+  transform: scale(0.96) translateY(0);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* Selected State (for tabs/filters) */
+.btn-ios.selected {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+  box-shadow: 0 0 15px rgba(255,255,255,0.3);
+  font-weight: 700;
+}
+
+/* 3D Primary Button (Generate) */
+.btn-3d-primary {
+  background: linear-gradient(180deg, #ffffff 0%, #d4d4d8 100%);
+  color: #000;
+  border-radius: 16px;
+  border: none;
+  font-weight: 700;
+  box-shadow: 
+    0 -2px 0 rgba(0,0,0,0.1) inset, /* Bottom bevel */
+    0 2px 0 rgba(255,255,255,1) inset, /* Top highlight */
+    0 4px 12px rgba(0,0,0,0.5); /* Drop shadow */
+  transition: all 0.2s ease;
+  position: relative;
+  z-index: 1;
+}
+
+.btn-3d-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    0 -2px 0 rgba(0,0,0,0.1) inset,
+    0 2px 0 rgba(255,255,255,1) inset,
+    0 8px 20px rgba(255,255,255,0.2); /* Glow */
+}
+
+.btn-3d-primary:active {
+  transform: translateY(1px);
+  box-shadow: 
+    0 1px 0 rgba(255,255,255,0.5) inset,
+    0 2px 4px rgba(0,0,0,0.3);
+}
+
+/* --- 3D INPUTS & PANELS --- */
+
+/* Inset 3D Look for inputs/areas */
+.inset-3d {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.4); /* Inner shadow for depth */
+  transition: border-color 0.2s;
+}
+
+.inset-3d:focus-within {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* Floating Card Effect */
+.card-3d {
+  transition: all 0.3s ease;
+}
+.card-3d:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.6);
+  border-color: rgba(255,255,255,0.15);
+}
+
+/* --- ANIMATIONS --- */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(255,255,255,0.1); }
+  50% { box-shadow: 0 0 20px rgba(255,255,255,0.3); }
+}
+
+.animate-glow {
+  animation: pulse-glow 3s infinite;
+}

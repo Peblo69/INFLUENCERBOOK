@@ -1,0 +1,17 @@
+{
+  "name": "browser-extension",
+  "version": "1.0.0",
+  "description": "Turn any image on the web into AI-generated art with Kiara Vision!",
+  "main": "background.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "node build-simple.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "canvas": "^3.2.0"
+  }
+}

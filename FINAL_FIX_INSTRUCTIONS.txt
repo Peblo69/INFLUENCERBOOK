@@ -1,0 +1,114 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║  🔥 COPY-PASTE FIX - DO THIS EXACTLY (4 MINUTES) 🔥                 ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+
+BUCKET 1: training-images
+═════════════════════════════════════════════════════════════════════
+
+1. Click: https://supabase.com/dashboard/project/fonzxpqtsdfhvlyvqjru/storage/buckets/training-images
+
+2. Click "Policies" tab
+
+3. Click "New Policy"
+
+4. Click "For full customization"
+
+5. Fill in EXACTLY:
+   Policy name: allow_all
+
+   Allowed operation: Check ALL 4 boxes (SELECT, INSERT, UPDATE, DELETE)
+
+   Target roles: Select BOTH "public" AND "authenticated"
+
+   USING expression: true
+
+   WITH CHECK expression: true
+
+6. Click "Review" → Click "Save policy"
+
+✅ DONE WITH BUCKET 1
+
+
+BUCKET 2: generated-images
+═════════════════════════════════════════════════════════════════════
+
+1. Click: https://supabase.com/dashboard/project/fonzxpqtsdfhvlyvqjru/storage/buckets/generated-images
+
+2. Click "Policies" tab
+
+3. Click "New Policy"
+
+4. Click "For full customization"
+
+5. Fill in EXACTLY:
+   Policy name: allow_all
+   Allowed operation: Check ALL 4 boxes
+   Target roles: Select "public" AND "authenticated"
+   USING expression: true
+   WITH CHECK expression: true
+
+6. Click "Review" → Click "Save policy"
+
+✅ DONE WITH BUCKET 2
+
+
+BUCKET 3: lora-models
+═════════════════════════════════════════════════════════════════════
+
+1. Click: https://supabase.com/dashboard/project/fonzxpqtsdfhvlyvqjru/storage/buckets/lora-models
+
+2. Click "Policies" tab
+
+3. Click "New Policy"
+
+4. Click "For full customization"
+
+5. Fill in EXACTLY:
+   Policy name: allow_all
+   Allowed operation: Check ALL 4 boxes
+   Target roles: Select "public" AND "authenticated"
+   USING expression: true
+   WITH CHECK expression: true
+
+6. Click "Review" → Click "Save policy"
+
+✅ DONE WITH BUCKET 3
+
+
+BUCKET 4: avatars
+═════════════════════════════════════════════════════════════════════
+
+1. Click: https://supabase.com/dashboard/project/fonzxpqtsdfhvlyvqjru/storage/buckets/avatars
+
+2. Click "Policies" tab
+
+3. Click "New Policy"
+
+4. Click "For full customization"
+
+5. Fill in EXACTLY:
+   Policy name: allow_all
+   Allowed operation: Check ALL 4 boxes
+   Target roles: Select "public" AND "authenticated"
+   USING expression: true
+   WITH CHECK expression: true
+
+6. Click "Review" → Click "Save policy"
+
+✅ DONE WITH BUCKET 4
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║  🎉 ALL DONE! NOW GO TO YOUR APP AND UPLOAD! 🎉                     ║
+║                                                                      ║
+║  http://localhost:5173/models                                        ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+
+⏰ TIME: 1 minute per bucket = 4 minutes total
+💡 TIP: Open all 4 bucket links in tabs, do them all at once

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Switch User - LoRA Access</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #0a0a0a;
+      color: #fff;
+    }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 30px;
+      margin: 20px 0;
+    }
+    h1 { color: #a78bfa; margin-bottom: 10px; }
+    h2 { color: #c4b5fd; font-size: 18px; margin-top: 30px; }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      margin: 10px 5px;
+      transition: transform 0.2s;
+    }
+    button:hover { transform: scale(1.05); }
+    button:active { transform: scale(0.95); }
+    .danger { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+    .user-box {
+      background: rgba(255,255,255,0.03);
+      padding: 15px;
+      border-radius: 8px;
+      margin: 10px 0;
+      border-left: 3px solid #a78bfa;
+    }
+    .user-id { font-family: monospace; color: #c4b5fd; }
+    .status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-left: 10px;
+    }
+    .current { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+    .target { background: rgba(251, 146, 60, 0.2); color: #fb923c; }
+    code {
+      background: rgba(255,255,255,0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #fbbf24;
+    }
+    .success { color: #4ade80; }
+    .warning { color: #fb923c; }
+    .info { color: #60a5fa; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔐 User Account Switcher</h1>
+    <p style="color: #9ca3af;">Switch between user accounts to access different LoRAs</p>
+
+    <h2>Current Situation:</h2>
+    <div class="user-box">
+      <div><strong>You're logged in as:</strong> <span class="status current">CURRENT</span></div>
+      <div class="user-id">b8cdc1d6-c185-4f21-89b5-2b8d1f1095a8</div>
+      <div style="margin-top: 10px; color: #9ca3af;">Credits: 100 | No LoRAs</div>
+    </div>
+
+    <div class="user-box">
+      <div><strong>LoRA owner account:</strong> <span class="status target">TARGET</span></div>
+      <div class="user-id">66ef676e-2103-49b8-8d5b-862e81d03917</div>
+      <div style="margin-top: 10px; color: #9ca3af;">Credits: 1130 | 1 LoRA (jovani)</div>
+    </div>
+
+    <h2>Solutions:</h2>
+
+    <div style="background: rgba(59, 130, 246, 0.1); padding: 20px; border-radius: 8px; margin: 20px 0;">
+      <h3 style="margin-top: 0; color: #60a5fa;">Option 1: Clear Session & Re-login</h3>
+      <p style="color: #9ca3af; font-size: 14px;">
+        This will log you out and you'll need to sign in again with the account that owns the LoRA.
+      </p>
+      <button class="danger" onclick="clearAndReload()">
+        🚪 Log Out & Clear Session
+      </button>
+    </div>
+
+    <div style="background: rgba(168, 85, 247, 0.1); padding: 20px; border-radius: 8px; margin: 20px 0;">
+      <h3 style="margin-top: 0; color: #a78bfa;">Option 2: View All LoRAs (Quick Fix)</h3>
+      <p style="color: #9ca3af; font-size: 14px;">
+        I can modify your code to show all LoRAs from all users. Good for testing/development.
+      </p>
+      <button onclick="window.close()">
+        ⬅️ Back to Terminal (I'll modify the code)
+      </button>
+    </div>
+
+    <h2>Manual Steps:</h2>
+    <ol style="color: #9ca3af; line-height: 1.8;">
+      <li>Press <code>F12</code> to open DevTools</li>
+      <li>Go to <strong>Application</strong> tab</li>
+      <li>Click <strong>Local Storage</strong> > your domain</li>
+      <li>Delete all keys starting with <code>sb-fonzxpqtsdfhvlyvqjru</code></li>
+      <li>Reload the page</li>
+      <li>Sign in with the account that trained the LoRA</li>
+    </ol>
+
+    <div id="status" style="margin-top: 20px; padding: 15px; border-radius: 8px; display: none;"></div>
+  </div>
+
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+    const SUPABASE_URL = 'https://fonzxpqtsdfhvlyvqjru.supabase.co';
+    const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZvbnp4cHF0c2RmaHZseXZxanJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2NzM3OTMsImV4cCI6MjA3ODI0OTc5M30.BH3RpY9f6iyEKzn-x4AUlGGqMmBOgA-8H2AY9OHdv7w';
+
+    const supabase = createClient(SUPABASE_URL, ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      }
+    });
+
+    window.clearAndReload = async function() {
+      const status = document.getElementById('status');
+      status.style.display = 'block';
+      status.style.background = 'rgba(251, 146, 60, 0.2)';
+      status.innerHTML = '⏳ Logging out and clearing session...';
+
+      try {
+        await supabase.auth.signOut();
+
+              // Clear all localStorage
+              try {
+                localStorage.clear();
+              } catch (e) {
+                console.warn('Could not clear localStorage:', e);
+              }
+        status.style.background = 'rgba(34, 197, 94, 0.2)';
+        status.innerHTML = '✅ Session cleared! Redirecting to login...';
+
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 1500);
+      } catch (error) {
+        status.style.background = 'rgba(239, 68, 68, 0.2)';
+        status.innerHTML = '❌ Error: ' + error.message;
+      }
+    };
+
+    // Check current session on load
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        console.log('Current session:', data.session.user.id);
+      }
+    })();
+  </script>
+</body>
+</html>

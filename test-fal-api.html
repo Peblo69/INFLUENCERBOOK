@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Fal.ai API Test</title>
+  <style>
+    body { font-family: system-ui; padding: 20px; background: #1a1a1a; color: white; }
+    .container { max-width: 800px; margin: 0 auto; }
+    button { padding: 10px 20px; background: #6366f1; color: white; border: none; border-radius: 8px; cursor: pointer; margin: 5px; }
+    button:hover { background: #4f46e5; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #result { margin-top: 20px; padding: 15px; background: #2a2a2a; border-radius: 8px; }
+    #image { max-width: 100%; border-radius: 8px; margin-top: 10px; }
+    textarea { width: 100%; height: 100px; padding: 10px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 8px; }
+    .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+    .success { background: #22c55e20; border: 1px solid #22c55e; }
+    .error { background: #ef444420; border: 1px solid #ef4444; }
+    .loading { background: #3b82f620; border: 1px solid #3b82f6; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎨 Fal.ai Wan 2.2 API Test</h1>
+
+    <h3>Prompt:</h3>
+    <textarea id="prompt">a beautiful woman with long dark hair, standing in a modern apartment, warm lighting, professional photography</textarea>
+
+    <h3>Test Options:</h3>
+    <button onclick="testQuick()">Quick Test (No LoRA)</button>
+    <button onclick="testInstagirl()">InstagirlMix (3 LoRAs)</button>
+    <button onclick="testCustom()">Custom Settings</button>
+
+    <div id="result">
+      <p>Click a button to test the API...</p>
+    </div>
+
+    <img id="image" style="display:none;" />
+  </div>
+
+  <script>
+    const FAL_KEY = '84e3e56c-b33e-47fa-90d7-822dd5a2ea79:4c3f25283b2f908b9cc413ad600a7909';
+    const FAL_URL = 'https://fal.run/fal-ai/wan/v2.2-a14b/text-to-image/lora';
+
+    const LORA_URLS = {
+      HIGH: 'https://huggingface.co/Instara/instagirlmix-wan-2.2/resolve/main/WAN2.2_HighNoise_InstagirlMix_V1.safetensors',
+      LOW: 'https://huggingface.co/Instara/instagirlmix-wan-2.2/resolve/main/WAN2.2_LowNoise_InstagirlMix_V1.safetensors',
+      DISTILL: 'https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank32.safetensors'
+    };
+
+    function showStatus(message, type = 'loading') {
+      document.getElementById('result').innerHTML = `<div class="status ${type}">${message}</div>`;
+    }
+
+    function showImage(url, data) {
+      document.getElementById('result').innerHTML = `
+        <div class="status success">
+          ✅ Generation complete!<br>
+          Seed: ${data.seed}<br>
+          Time: ${data.timings?.inference || 'N/A'}ms
+        </div>
+      `;
+      const img = document.getElementById('image');
+      img.src = url;
+      img.style.display = 'block';
+    }
+
+    async function testQuick() {
+      showStatus('🔄 Generating (no LoRA)...');
+
+      try {
+        const response = await fetch(FAL_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Key ${FAL_KEY}`
+          },
+          body: JSON.stringify({
+            prompt: document.getElementById('prompt').value,
+            image_size: { width: 768, height: 1024 },
+            num_inference_steps: 20,
+            guidance_scale: 3.5,
+            loras: [],
+            acceleration: 'regular'
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || error.message || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        showImage(data.image.url, data);
+      } catch (err) {
+        showStatus(`❌ Error: ${err.message}`, 'error');
+      }
+    }
+
+    async function testInstagirl() {
+      showStatus('🔄 Generating with InstagirlMix (3 LoRAs)... This may take 30-60 seconds...');
+
+      const prompt = document.getElementById('prompt').value;
+      const fullPrompt = `InstagirlMix, ${prompt}, Instagirl, kept delicate noise texture, dangerous charm, amateur cellphone quality, visible sensor noise, heavy HDR glow`;
+
+      try {
+        const response = await fetch(FAL_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Key ${FAL_KEY}`
+          },
+          body: JSON.stringify({
+            prompt: fullPrompt,
+            negative_prompt: 'censored, sunburnt skin, rashy skin, red cheeks, worst quality, low quality',
+            image_size: { width: 960, height: 1280 },
+            num_inference_steps: 12,
+            guidance_scale: 1,
+            guidance_scale_2: 1,
+            shift: 2,
+            loras: [
+              { path: LORA_URLS.HIGH, scale: 1.0, transformer: 'high' },
+              { path: LORA_URLS.LOW, scale: 1.0, transformer: 'low' },
+              { path: LORA_URLS.DISTILL, scale: 0.6, transformer: 'both' }
+            ],
+            acceleration: 'regular'
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || error.message || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        showImage(data.image.url, data);
+      } catch (err) {
+        showStatus(`❌ Error: ${err.message}`, 'error');
+      }
+    }
+
+    async function testCustom() {
+      const steps = prompt('Inference steps (default 20):', '20');
+      const width = prompt('Width (default 1024):', '1024');
+      const height = prompt('Height (default 1024):', '1024');
+
+      showStatus('🔄 Generating with custom settings...');
+
+      try {
+        const response = await fetch(FAL_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Key ${FAL_KEY}`
+          },
+          body: JSON.stringify({
+            prompt: document.getElementById('prompt').value,
+            image_size: { width: parseInt(width), height: parseInt(height) },
+            num_inference_steps: parseInt(steps),
+            guidance_scale: 3.5,
+            loras: [],
+            acceleration: 'regular'
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || error.message || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        showImage(data.image.url, data);
+      } catch (err) {
+        showStatus(`❌ Error: ${err.message}`, 'error');
+      }
+    }
+  </script>
+</body>
+</html>
