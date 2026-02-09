@@ -3,11 +3,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const REPLICATE_API_KEY = Deno.env.get("REPLICATE_API_KEY") ?? "";
 const WAVESPEED_API_KEY = Deno.env.get("WAVESPEED_API_KEY") ?? "";
+const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const REPLICATE_BASE_URL = "https://api.replicate.com/v1";
 const WAVESPEED_BASE_URL = "https://api.wavespeed.ai/api/v3";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const OPENROUTER_VIDEO_MODEL = "bytedance-seed/seed-1.6-flash";
 
 const MODEL_VERSIONS = {
   UPSCALE: "recraft-ai/recraft-crisp-upscale",
@@ -47,6 +50,25 @@ const withTimeout = async (url: string, options: RequestInit, timeoutMs = 60000)
   } finally {
     clearTimeout(timeout);
   }
+};
+
+const extractTextContent = (content: unknown): string => {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+
+  const parts: string[] = [];
+  for (const item of content) {
+    if (typeof item === "string") {
+      parts.push(item);
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const text = (item as { text?: unknown }).text;
+    if (typeof text === "string" && text.trim().length > 0) {
+      parts.push(text.trim());
+    }
+  }
+  return parts.join("\n").trim();
 };
 
 async function createPrediction(model: string, input: Record<string, unknown>) {
@@ -297,8 +319,87 @@ serve(async (req) => {
     }
 
     if (action === "describe-video") {
-      const media = body.media;
+      const media = body.media || body.video;
       if (!media) throw new Error("Missing required field: media");
+
+      if (provider === "openrouter") {
+        if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY is not configured");
+        const mediaUrl = String(media);
+        if (mediaUrl.startsWith("blob:")) {
+          throw new Error("Local blob URLs are not supported. Upload the video to public storage first.");
+        }
+        const isHttp = mediaUrl.startsWith("https://") || mediaUrl.startsWith("http://");
+        const isDataUri = mediaUrl.startsWith("data:video/");
+        if (!isHttp && !isDataUri) {
+          throw new Error("Invalid media URL. Use an http(s) URL or data:video/* URI.");
+        }
+
+        const prompt =
+          String(body.prompt || "").trim() ||
+          "Describe this video in detail. Include timeline of events, key actions, objects, and setting.";
+        const model = String(body.model || OPENROUTER_VIDEO_MODEL);
+        const requestPayload: Record<string, unknown> = {
+          model,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
+                { type: "video_url", video_url: { url: mediaUrl } },
+              ],
+            },
+          ],
+          stream: false,
+          temperature: body.temperature ?? 0.2,
+          max_tokens: body.max_tokens ?? body.max_new_tokens ?? 1200,
+        };
+
+        const reasoning =
+          typeof body.reasoning === "object" && body.reasoning !== null
+            ? body.reasoning
+            : { enabled: body.reasoning_enabled ?? true };
+        requestPayload.reasoning = reasoning;
+
+        const response = await withTimeout(
+          `${OPENROUTER_BASE_URL}/chat/completions`,
+          {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(requestPayload),
+          },
+          120000
+        );
+
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          const errorMessage =
+            data?.error?.message ||
+            data?.message ||
+            data?.error ||
+            `OpenRouter video description failed (${response.status})`;
+          throw new Error(errorMessage);
+        }
+
+        const message = data?.choices?.[0]?.message || {};
+        const output = extractTextContent(message.content);
+        if (!output) throw new Error("OpenRouter returned empty video description");
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            output,
+            model,
+            citations: data?.citations ?? null,
+            reasoning: message?.reasoning ?? null,
+            reasoning_details: message?.reasoning_details ?? null,
+            usage: data?.usage ?? null,
+          }),
+          { status: 200, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+        );
+      }
 
       const prediction = await createPrediction(MODEL_VERSIONS.QWEN_VL, {
         media,
@@ -320,49 +421,50 @@ serve(async (req) => {
         throw new Error("Missing required fields: image, mask, prompt");
       }
 
-      const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-      if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
+      const FAL_API_KEY = Deno.env.get("FAL_API_KEY");
+      if (!FAL_API_KEY) throw new Error("FAL_API_KEY is not configured");
 
-      // Convert base64 data URIs to Blobs
-      const imageBlob = dataUriToBlob(image);
-      const maskBlob = dataUriToBlob(mask);
+      console.log(`[kiara-media] inpaint via fal.ai, prompt="${inpaintPrompt.substring(0, 80)}"`);
 
-      // Build multipart/form-data for OpenAI Images Edit
-      const formData = new FormData();
-      formData.append("image", imageBlob, "image.png");
-      formData.append("mask", maskBlob, "mask.png");
-      formData.append("prompt", inpaintPrompt);
-      formData.append("model", body.model || "gpt-image-1");
-      if (body.size) formData.append("size", body.size);
-      if (body.quality) formData.append("quality", body.quality);
+      // fal.ai accepts base64 data URIs directly — no conversion needed
+      // Use FLUX Fill inpainting model
+      const falPayload = {
+        image_url: image,
+        mask_url: mask,
+        prompt: inpaintPrompt,
+        image_size: body.size || "landscape_16_9",
+        num_images: 1,
+        sync_mode: true,
+      };
 
-      console.log(`[kiara-media] inpaint: model=${body.model || "gpt-image-1"}, prompt="${inpaintPrompt.substring(0, 80)}"`);
+      // Release large strings from body
+      body.image = null;
+      body.mask = null;
 
       const response = await withTimeout(
-        "https://api.openai.com/v1/images/edits",
+        "https://queue.fal.run/fal-ai/flux/fill",
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-          body: formData,
+          headers: {
+            "Authorization": `Key ${FAL_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(falPayload),
         },
         120000
       );
 
       const data = await response.json();
       if (!response.ok) {
-        console.error("[kiara-media] OpenAI inpaint error:", JSON.stringify(data));
-        throw new Error(data.error?.message || `OpenAI inpaint failed (${response.status})`);
+        console.error("[kiara-media] fal.ai inpaint error:", JSON.stringify(data));
+        throw new Error(data.detail || data.error?.message || `Inpaint failed (${response.status})`);
       }
 
-      // gpt-image-1 returns b64_json, dall-e-2 may return url
-      const outputB64 = data.data?.[0]?.b64_json;
-      const outputUrl = data.data?.[0]?.url;
-      const result = outputB64
-        ? `data:image/png;base64,${outputB64}`
-        : outputUrl || null;
+      // fal.ai returns { images: [{ url, content_type }] }
+      const outputUrl = data.images?.[0]?.url || null;
 
       return new Response(
-        JSON.stringify({ success: true, output: result }),
+        JSON.stringify({ success: true, output: outputUrl }),
         { status: 200, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
       );
     }

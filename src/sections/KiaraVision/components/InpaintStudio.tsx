@@ -107,28 +107,39 @@ export const InpaintStudio = () => {
     setError(null);
   };
 
-  // Export original image as base64 data URI
+  // Cap dimensions to avoid blowing edge function memory limits
+  const MAX_INPAINT_DIM = 1024;
+  const getScaledDims = (w: number, h: number) => {
+    if (w <= MAX_INPAINT_DIM && h <= MAX_INPAINT_DIM) return { w, h };
+    const scale = MAX_INPAINT_DIM / Math.max(w, h);
+    return { w: Math.round(w * scale), h: Math.round(h * scale) };
+  };
+
+  // Export original image as base64 data URI (resized to max 1024px)
   const exportImageAsDataUri = (): string => {
     const img = imageRef.current!;
+    const { w, h } = getScaledDims(img.naturalWidth, img.naturalHeight);
     const c = document.createElement("canvas");
-    c.width = img.naturalWidth;
-    c.height = img.naturalHeight;
+    c.width = w;
+    c.height = h;
     const ctx = c.getContext("2d")!;
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, 0, 0, w, h);
     return c.toDataURL("image/png");
   };
 
   // Export mask with inverted alpha (purple painted → transparent for OpenAI)
   const exportMaskAsDataUri = (): string => {
     const canvas = canvasRef.current!;
+    const img = imageRef.current!;
+    const { w, h } = getScaledDims(img.naturalWidth, img.naturalHeight);
     const c = document.createElement("canvas");
-    c.width = canvas.width;
-    c.height = canvas.height;
+    c.width = w;
+    c.height = h;
     const ctx = c.getContext("2d")!;
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.fillRect(0, 0, w, h);
     ctx.globalCompositeOperation = "destination-out";
-    ctx.drawImage(canvas, 0, 0);
+    ctx.drawImage(canvas, 0, 0, w, h);
     return c.toDataURL("image/png");
   };
 
@@ -144,7 +155,6 @@ export const InpaintStudio = () => {
         image: imageData,
         mask: maskData,
         prompt: prompt.trim(),
-        quality: "high",
       });
       if (result.success && result.output) {
         setPreviousImageSrc(imageSrc);

@@ -1,18 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
-  Clock,
   Download,
   Film,
   Layers,
   Maximize,
   Minimize,
-  MonitorPlay,
   MoreHorizontal,
   Pause,
   Play,
-  Sliders,
+  SlidersHorizontal,
   Sparkles,
   Upload,
   Volume1,
@@ -20,158 +18,64 @@ import {
   VolumeX,
   X,
   Zap,
+  Image as ImageIcon,
+  Type,
 } from "lucide-react";
 import { useI18n } from "@/contexts/I18nContext";
-
-const videoCreatorStyles = `
-  .kv-font-display {
-    font-family: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
-    letter-spacing: 0.02em;
-  }
-
-  .kv-glass {
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    backdrop-filter: blur(20px);
-  }
-
-  .kv-glass-soft {
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(14px);
-  }
-
-  .kv-panel-shadow {
-    box-shadow:
-      0 16px 40px rgba(0, 0, 0, 0.45),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  }
-
-  .kv-button-primary {
-    background-image: linear-gradient(110deg, #ffffff 0%, #f4f4f5 40%, #d4d4d8 100%);
-    color: #09090b;
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    box-shadow:
-      0 12px 30px rgba(255, 255, 255, 0.08),
-      inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  }
-
-  .kv-button-primary:hover {
-    filter: brightness(1.03);
-    transform: translateY(-1px);
-  }
-
-  .kv-button-primary:active {
-    transform: translateY(0);
-  }
-
-  .kv-chip-active {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.22);
-    color: #fafafa;
-  }
-
-  .kv-ring-accent {
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.08),
-      0 0 0 6px rgba(255, 255, 255, 0.02);
-  }
-
-  .kv-surface-grid {
-    background-image:
-      linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-    background-size: 36px 36px;
-  }
-
-  .kv-noise-overlay {
-    background-image: radial-gradient(rgba(255, 255, 255, 0.08) 0.6px, transparent 0.6px);
-    background-size: 3px 3px;
-    opacity: 0.14;
-    mix-blend-mode: soft-light;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.18);
-    border-radius: 999px;
-  }
-
-  .hide-scrollbar {
-    scrollbar-width: none;
-  }
-
-  .hide-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-
-  .animate-kv-fade-up {
-    animation: kv-fade-up 320ms ease-out;
-  }
-
-  .animate-kv-pulse {
-    animation: kv-pulse 2s ease-in-out infinite;
-  }
-
-  .kv-render-path {
-    stroke-dasharray: 80;
-    stroke-dashoffset: 80;
-    animation: kv-draw 1.9s linear infinite;
-  }
-
-  @keyframes kv-fade-up {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @keyframes kv-pulse {
-    0%,
-    100% {
-      opacity: 0.4;
-    }
-    50% {
-      opacity: 1;
-    }
-  }
-
-  @keyframes kv-draw {
-    0% {
-      stroke-dashoffset: 80;
-    }
-    100% {
-      stroke-dashoffset: 0;
-    }
-  }
-`;
+import { describeVideoWithOpenRouter } from "@/services/kiaraGateway";
+import { uploadForReplicate } from "@/services/replicateApi";
 
 const DURATION_OPTIONS = ["5s", "8s", "12s"] as const;
-const RATIO_OPTIONS = ["16:9", "9:16", "1:1"] as const;
+const RATIO_OPTIONS = [
+  { id: "16:9", label: "16:9", w: 16, h: 9 },
+  { id: "9:16", label: "9:16", w: 9, h: 16 },
+  { id: "1:1", label: "1:1", w: 1, h: 1 },
+] as const;
+
+const ALLOWED_VIDEO_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const MAX_VIDEO_SIZE_MB = 200;
+const MAX_VIDEO_DURATION_SEC = 300;
+const MAX_VIDEO_DIMENSION = 3840;
+const MIN_VIDEO_DIMENSION = 64;
+
+type VideoMeta = {
+  durationSec: number;
+  width: number;
+  height: number;
+  sizeMb: number;
+  mime: string;
+};
+
+const AspectIcon = ({ w, h, active }: { w: number; h: number; active?: boolean }) => {
+  const isWide = w > h;
+  const scale = isWide ? 14 : 10;
+  const width = isWide ? scale : (scale * w) / h;
+  const height = isWide ? (scale * h) / w : scale;
+  return (
+    <div
+      className={`border transition-colors ${active ? "border-white/60" : "border-white/25"}`}
+      style={{ width, height, borderRadius: 2 }}
+    />
+  );
+};
 
 export const VideoCreator = () => {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<"text" | "image">("image");
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [selectedRatio, setSelectedRatio] = useState<(typeof RATIO_OPTIONS)[number]>("16:9");
+  const [selectedRatio, setSelectedRatio] = useState<string>("16:9");
   const [selectedDuration, setSelectedDuration] = useState<(typeof DURATION_OPTIONS)[number]>("5s");
 
   const [dragActive, setDragActive] = useState(false);
   const [uploadedMedia, setUploadedMedia] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<"image" | "video" | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [visionResult, setVisionResult] = useState<string>("");
+  const [visionError, setVisionError] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [videoSrc, setVideoSrc] = useState(
@@ -186,11 +90,7 @@ export const VideoCreator = () => {
   const [isMuted, setIsMuted] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isDown = useRef(false);
-  const startX = useRef(0);
-  const scrollLeft = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -224,67 +124,143 @@ export const VideoCreator = () => {
     });
   };
 
-  const handleFile = (file: File) => {
+  const loadVideoMetadata = (file: File): Promise<{ duration: number; width: number; height: number }> =>
+    new Promise((resolve, reject) => {
+      const probeUrl = URL.createObjectURL(file);
+      const probe = document.createElement("video");
+      probe.preload = "metadata";
+      probe.src = probeUrl;
+      probe.onloadedmetadata = () => {
+        const duration = Number.isFinite(probe.duration) ? probe.duration : 0;
+        const width = probe.videoWidth || 0;
+        const height = probe.videoHeight || 0;
+        URL.revokeObjectURL(probeUrl);
+        resolve({ duration, width, height });
+      };
+      probe.onerror = () => {
+        URL.revokeObjectURL(probeUrl);
+        reject(new Error("Failed to read video metadata"));
+      };
+    });
+
+  const validateVideo = async (file: File): Promise<VideoMeta> => {
+    if (!ALLOWED_VIDEO_TYPES.has(file.type)) {
+      throw new Error("Unsupported video format. Use MP4, WebM, or MOV.");
+    }
+    const sizeMb = file.size / (1024 * 1024);
+    if (sizeMb > MAX_VIDEO_SIZE_MB) {
+      throw new Error(`Video is too large (${sizeMb.toFixed(1)}MB). Max is ${MAX_VIDEO_SIZE_MB}MB.`);
+    }
+
+    const { duration, width, height } = await loadVideoMetadata(file);
+    if (!duration || duration <= 0) {
+      throw new Error("Video duration could not be detected.");
+    }
+    if (duration > MAX_VIDEO_DURATION_SEC) {
+      throw new Error(`Video is too long (${duration.toFixed(1)}s). Max is ${MAX_VIDEO_DURATION_SEC}s.`);
+    }
+    if (width < MIN_VIDEO_DIMENSION || height < MIN_VIDEO_DIMENSION) {
+      throw new Error("Video resolution is too low. Minimum is 64x64.");
+    }
+    if (width > MAX_VIDEO_DIMENSION || height > MAX_VIDEO_DIMENSION) {
+      throw new Error("Video resolution is too high. Maximum dimension is 3840.");
+    }
+
+    return {
+      durationSec: duration,
+      width,
+      height,
+      sizeMb,
+      mime: file.type,
+    };
+  };
+
+  const handleFile = async (file: File) => {
     if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      setUploadError("Only image and video files are supported.");
       return;
     }
-    const url = URL.createObjectURL(file);
-    setMediaUrl(url);
-    setMediaType(file.type.startsWith("video/") ? "video" : "image");
+
+    try {
+      setUploadError(null);
+      setVisionError(null);
+      setVisionResult("");
+
+      if (file.type.startsWith("video/")) {
+        const meta = await validateVideo(file);
+        setVideoMeta(meta);
+        setMediaType("video");
+      } else {
+        setVideoMeta(null);
+        setMediaType("image");
+      }
+
+      const url = URL.createObjectURL(file);
+      setUploadedFile(file);
+      setMediaUrl(url);
+    } catch (error: any) {
+      setUploadError(error?.message || "File validation failed");
+      setUploadedFile(null);
+      setMediaUrl(null);
+      setMediaType(null);
+      setVideoMeta(null);
+    }
+  };
+
+  const runVisionTest = async () => {
+    if (!uploadedFile || mediaType !== "video") {
+      setVisionError("Upload a video first.");
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setVisionError(null);
+    setVisionResult("");
+    try {
+      const mediaUrl = await uploadForReplicate(uploadedFile);
+      const response = await describeVideoWithOpenRouter({
+        media: mediaUrl,
+        reasoning_enabled: true,
+        max_tokens: 1400,
+        prompt:
+          "Analyze this video in detail. Return: 1) Timeline with timestamps, 2) Main subjects and actions, 3) Scene/location details, 4) Camera motion and shot types, 5) Visible text/logos.",
+      });
+
+      if (!response.success || !response.output) {
+        throw new Error("AI returned an empty description");
+      }
+
+      setVisionResult(response.output);
+    } catch (error: any) {
+      setVisionError(error?.message || "Video analysis failed");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files?.[0]) {
+      void handleFile(e.dataTransfer.files[0]);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleFile(e.target.files[0]);
+    if (e.target.files?.[0]) {
+      void handleFile(e.target.files[0]);
     }
-  };
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!scrollRef.current) {
-      return;
-    }
-    isDown.current = true;
-    startX.current = e.pageX - scrollRef.current.offsetLeft;
-    scrollLeft.current = scrollRef.current.scrollLeft;
-  };
-
-  const handleMouseLeave = () => {
-    isDown.current = false;
-  };
-
-  const handleMouseUp = () => {
-    isDown.current = false;
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDown.current || !scrollRef.current) {
-      return;
-    }
-    e.preventDefault();
-    const x = e.pageX - scrollRef.current.offsetLeft;
-    const walk = (x - startX.current) * 2;
-    scrollRef.current.scrollLeft = scrollLeft.current - walk;
   };
 
   const togglePlay = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (!videoRef.current) {
-      return;
-    }
+    if (!videoRef.current) return;
     if (videoRef.current.paused) {
       void videoRef.current.play();
-      return;
+    } else {
+      videoRef.current.pause();
     }
-    videoRef.current.pause();
   };
 
   const toggleFullScreen = (e?: React.MouseEvent) => {
@@ -294,14 +270,10 @@ export const VideoCreator = () => {
 
   const toggleMute = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (!videoRef.current) {
-      return;
-    }
-
+    if (!videoRef.current) return;
     const nextMuted = !isMuted;
     videoRef.current.muted = nextMuted;
     setIsMuted(nextMuted);
-
     if (!nextMuted && volume === 0) {
       setVolume(0.5);
       videoRef.current.volume = 0.5;
@@ -311,7 +283,6 @@ export const VideoCreator = () => {
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newVolume = parseFloat(e.target.value);
     setVolume(newVolume);
-
     if (videoRef.current) {
       videoRef.current.volume = newVolume;
       setIsMuted(newVolume === 0);
@@ -319,39 +290,28 @@ export const VideoCreator = () => {
   };
 
   const formatTime = (seconds: number) => {
-    if (!seconds || Number.isNaN(seconds)) {
-      return "00:00";
-    }
+    if (!seconds || Number.isNaN(seconds)) return "00:00";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
   const handleTimeUpdate = () => {
-    if (!videoRef.current) {
-      return;
-    }
-
+    if (!videoRef.current) return;
     const current = videoRef.current.currentTime;
     const total = videoRef.current.duration;
     setCurrentTime(current);
     setVideoDuration(total);
-    if (total > 0) {
-      setProgress((current / total) * 100);
-    }
+    if (total > 0) setProgress((current / total) * 100);
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    if (!videoRef.current) {
-      return;
-    }
-
+    if (!videoRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const percentage = Math.max(0, Math.min(1, clickX / rect.width));
     const newTime = percentage * videoRef.current.duration;
-
     if (!Number.isNaN(newTime)) {
       videoRef.current.currentTime = newTime;
       setProgress(percentage * 100);
@@ -359,80 +319,79 @@ export const VideoCreator = () => {
   };
 
   const renderVolumeIcon = () => {
-    if (isMuted || volume === 0) {
-      return <VolumeX size={18} />;
-    }
-    if (volume < 0.5) {
-      return <Volume1 size={18} />;
-    }
-    return <Volume2 size={18} />;
+    if (isMuted || volume === 0) return <VolumeX size={16} />;
+    if (volume < 0.5) return <Volume1 size={16} />;
+    return <Volume2 size={16} />;
   };
 
+  const glassCard = "relative rounded-[20px] overflow-hidden bg-gradient-to-b from-white/[0.05] to-white/[0.01] backdrop-blur-xl border border-white/[0.06]";
+  const tinyLabel = "text-[10px] font-medium text-white/30 uppercase tracking-[0.14em]";
+
   return (
-    <div className="relative h-full min-h-0 flex overflow-hidden bg-[#030303] text-white font-sans">
-      <style>{videoCreatorStyles}</style>
+    <div className="relative h-full min-h-0 flex overflow-hidden bg-black text-white">
+      <div className="absolute -top-40 -right-20 w-[500px] h-[500px] rounded-full bg-white/[0.02] blur-[100px] pointer-events-none" />
+      <div className="absolute -bottom-32 -left-20 w-[400px] h-[400px] rounded-full bg-white/[0.015] blur-[80px] pointer-events-none" />
 
-      <div className="absolute inset-0 kv-surface-grid opacity-30 pointer-events-none" />
-      <div className="absolute inset-0 kv-noise-overlay pointer-events-none" />
-      <div className="absolute -top-40 -right-10 w-[540px] h-[540px] rounded-full bg-white/[0.04] blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-24 -left-16 w-[420px] h-[420px] rounded-full bg-white/[0.03] blur-3xl pointer-events-none" />
-
-      <aside className="w-[390px] h-full border-r border-white/10 bg-black/40 backdrop-blur-2xl z-20 flex flex-col">
-        <div className="p-5 border-b border-white/10">
-          <div className="kv-glass-soft kv-panel-shadow rounded-2xl p-4 space-y-4">
+      <aside className="w-[320px] h-full border-r border-white/[0.04] bg-black/80 backdrop-blur-2xl z-20 flex flex-col">
+        <div className="p-4 border-b border-white/[0.04]">
+          <div className={`${glassCard} p-3`}>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl kv-glass-soft flex items-center justify-center">
-                  <Film size={18} className="text-zinc-100" />
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
+                  <Film size={15} className="text-white/70" />
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">{t("Studio")}</p>
-                  <h2 className="kv-font-display text-sm font-semibold">{t("Video Creator")}</h2>
+                  <p className="text-[9px] uppercase tracking-[0.18em] text-white/35">Kiara Vision</p>
+                  <h2 className="text-[13px] font-semibold text-white/90 tracking-tight">Video Studio</h2>
                 </div>
               </div>
-              <button className="px-3 py-1.5 rounded-full kv-glass-soft text-[10px] uppercase tracking-[0.15em] text-zinc-300 hover:text-white transition-colors flex items-center gap-1.5">
-                {t("Model Pro")} <ChevronDown size={11} />
+              <button className="px-2.5 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-[9px] uppercase tracking-[0.12em] text-white/50 hover:text-white/80 hover:bg-white/[0.06] transition-all flex items-center gap-1">
+                Pro <ChevronDown size={10} />
               </button>
             </div>
 
-            <div className="p-1 rounded-xl bg-black/40 border border-white/10 flex">
+            <div className="mt-3 p-0.5 rounded-xl bg-black/40 border border-white/[0.05] flex">
               <button
                 onClick={() => setActiveTab("text")}
-                className={`flex-1 py-2 rounded-lg text-[10px] uppercase tracking-[0.18em] font-semibold transition-all ${
-                  activeTab === "text" ? "kv-chip-active" : "text-zinc-500 hover:text-zinc-300"
+                className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-all flex items-center justify-center gap-1.5 ${
+                  activeTab === "text"
+                    ? "bg-white/[0.1] text-white border border-white/[0.1]"
+                    : "text-white/35 hover:text-white/60"
                 }`}
               >
-                {t("Text")}
+                <Type size={11} /> Text
               </button>
               <button
                 onClick={() => setActiveTab("image")}
-                className={`flex-1 py-2 rounded-lg text-[10px] uppercase tracking-[0.18em] font-semibold transition-all ${
-                  activeTab === "image" ? "kv-chip-active" : "text-zinc-500 hover:text-zinc-300"
+                className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-all flex items-center justify-center gap-1.5 ${
+                  activeTab === "image"
+                    ? "bg-white/[0.1] text-white border border-white/[0.1]"
+                    : "text-white/35 hover:text-white/60"
                 }`}
               >
-                {t("Image/Video")}
+                <ImageIcon size={11} /> Image
               </button>
             </div>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
+        <div className="flex-1 overflow-y-auto scrollbar-hide p-4 space-y-3">
           {activeTab === "image" && (
-            <section className="kv-glass-soft kv-panel-shadow rounded-2xl p-4 animate-kv-fade-up">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">{t("Reference")}</span>
+            <div className={`${glassCard} p-3 animate-in slide-in-from-bottom-2 fade-in duration-300`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className={tinyLabel}>Reference</span>
                 {uploadedMedia && (
-                  <span className="text-[10px] text-emerald-400 flex items-center gap-1">
-                    <CheckCircle2 size={10} /> {t("Ready")}
+                  <span className="text-[9px] text-emerald-400/80 flex items-center gap-1">
+                    <CheckCircle2 size={9} /> Ready
                   </span>
                 )}
               </div>
 
               <div
-                className={`relative group w-full aspect-video rounded-xl border border-dashed overflow-hidden transition-all cursor-pointer ${
+                className={`relative group w-full aspect-video rounded-[14px] border border-dashed overflow-hidden transition-all cursor-pointer ${
                   dragActive
-                    ? "border-zinc-200 bg-white/10"
-                    : "border-white/20 bg-black/30 hover:bg-black/40 hover:border-white/30"
+                    ? "border-white/30 bg-white/[0.05]"
+                    : "border-white/[0.08] bg-black/40 hover:bg-black/50 hover:border-white/[0.15]"
                 }`}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
@@ -440,13 +399,7 @@ export const VideoCreator = () => {
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
               >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  accept="image/*,video/*"
-                  onChange={handleFileChange}
-                />
+                <input ref={fileInputRef} type="file" className="hidden" accept="image/*,video/*" onChange={handleFileChange} />
 
                 {uploadedMedia ? (
                   mediaType === "video" ? (
@@ -455,12 +408,12 @@ export const VideoCreator = () => {
                     <img src={uploadedMedia} alt="Reference" className="w-full h-full object-cover" />
                   )
                 ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none">
-                    <div className="w-10 h-10 rounded-full kv-glass-soft border border-white/20 flex items-center justify-center">
-                      <Upload size={16} className={dragActive ? "text-white" : "text-zinc-400"} />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none">
+                    <div className="w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center">
+                      <Upload size={14} className={dragActive ? "text-white/80" : "text-white/40"} />
                     </div>
-                    <span className="text-xs text-zinc-400">
-                      {dragActive ? t("Drop to upload") : t("Drop or click media")}
+                    <span className="text-[11px] text-white/35">
+                      {dragActive ? "Drop to upload" : "Drop media here"}
                     </span>
                   </div>
                 )}
@@ -471,21 +424,35 @@ export const VideoCreator = () => {
                       e.stopPropagation();
                       setMediaUrl(null);
                       setMediaType(null);
+                      setUploadedFile(null);
+                      setVideoMeta(null);
+                      setUploadError(null);
+                      setVisionError(null);
+                      setVisionResult("");
                     }}
-                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 hover:bg-black/90 border border-white/20 text-white flex items-center justify-center transition-colors"
+                    className="absolute top-2 right-2 w-6 h-6 rounded-lg bg-black/70 hover:bg-black/90 border border-white/[0.1] text-white/70 flex items-center justify-center transition-colors"
                   >
-                    <X size={12} />
+                    <X size={10} />
                   </button>
                 )}
               </div>
-            </section>
+              {uploadError && (
+                <p className="mt-2 text-[10px] text-red-300/90">{uploadError}</p>
+              )}
+              {mediaType === "video" && videoMeta && (
+                <p className="mt-2 text-[10px] text-white/45">
+                  {videoMeta.mime} | {videoMeta.width}x{videoMeta.height} | {videoMeta.durationSec.toFixed(1)}s |{" "}
+                  {videoMeta.sizeMb.toFixed(1)}MB
+                </p>
+              )}
+            </div>
           )}
 
-          <section className="kv-glass-soft kv-panel-shadow rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">{t("Prompt")}</span>
-              <button className="px-2.5 py-1 rounded-full border border-white/15 text-[10px] uppercase tracking-[0.15em] text-zinc-400 hover:text-white hover:border-white/25 transition-colors flex items-center gap-1.5">
-                <Sparkles size={11} /> {t("Enhance")}
+          <div className={`${glassCard} p-3`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className={tinyLabel}>Prompt</span>
+              <button className="px-2 py-1 rounded-lg bg-white/[0.03] border border-white/[0.06] text-[9px] uppercase tracking-[0.1em] text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-all flex items-center gap-1">
+                <Sparkles size={9} /> Enhance
               </button>
             </div>
             <textarea
@@ -493,26 +460,26 @@ export const VideoCreator = () => {
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={
                 activeTab === "image"
-                  ? t("Describe camera movement, pacing, and style...")
-                  : t("A slow cinematic dolly through a neon rain alley...")
+                  ? "Camera movement, pacing, mood..."
+                  : "A cinematic dolly through neon rain..."
               }
-              className="w-full h-32 rounded-xl bg-black/35 border border-white/10 p-3 text-[14px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-white/25 resize-none leading-relaxed"
+              className="w-full h-24 rounded-[14px] bg-black/50 border border-white/[0.06] p-3 text-[12px] text-white/80 placeholder:text-white/20 outline-none focus:border-white/[0.12] resize-none leading-relaxed"
             />
-          </section>
+          </div>
 
-          <section className="kv-glass-soft kv-panel-shadow rounded-2xl p-4 space-y-4">
+          <div className={`${glassCard} p-3 space-y-3`}>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-2">{t("Duration")}</p>
-                <div className="grid grid-cols-3 gap-1">
+                <p className={`${tinyLabel} mb-2`}>Duration</p>
+                <div className="flex gap-1">
                   {DURATION_OPTIONS.map((value) => (
                     <button
                       key={value}
                       onClick={() => setSelectedDuration(value)}
-                      className={`py-2 rounded-lg text-[11px] transition-colors border ${
+                      className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-all border ${
                         selectedDuration === value
-                          ? "kv-chip-active"
-                          : "text-zinc-400 border-white/10 hover:text-white hover:border-white/20"
+                          ? "bg-white/[0.1] text-white border-white/[0.12]"
+                          : "text-white/30 border-white/[0.04] hover:text-white/50 hover:border-white/[0.08]"
                       }`}
                     >
                       {value}
@@ -521,87 +488,107 @@ export const VideoCreator = () => {
                 </div>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-2">{t("Aspect")}</p>
-                <div className="grid grid-cols-3 gap-1">
-                  {RATIO_OPTIONS.map((value) => (
+                <p className={`${tinyLabel} mb-2`}>Aspect</p>
+                <div className="flex gap-1">
+                  {RATIO_OPTIONS.map((r) => (
                     <button
-                      key={value}
-                      onClick={() => setSelectedRatio(value)}
-                      className={`py-2 rounded-lg text-[11px] transition-colors border ${
-                        selectedRatio === value
-                          ? "kv-chip-active"
-                          : "text-zinc-400 border-white/10 hover:text-white hover:border-white/20"
+                      key={r.id}
+                      onClick={() => setSelectedRatio(r.id)}
+                      className={`flex-1 h-7 rounded-lg flex items-center justify-center gap-1.5 transition-all border ${
+                        selectedRatio === r.id
+                          ? "bg-white/[0.1] text-white/80 border-white/[0.12]"
+                          : "text-white/30 border-white/[0.04] hover:text-white/50 hover:border-white/[0.08]"
                       }`}
                     >
-                      {value}
+                      <AspectIcon w={r.w} h={r.h} active={selectedRatio === r.id} />
                     </button>
                   ))}
                 </div>
               </div>
             </div>
 
-            <button className="w-full flex items-center justify-between rounded-xl border border-white/12 px-3.5 py-3 text-sm text-zinc-400 hover:text-white hover:border-white/20 transition-colors">
+            <button className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] text-[11px] text-white/50 hover:text-white/80 hover:bg-white/[0.04] hover:border-white/[0.1] transition-all">
               <span className="flex items-center gap-2">
-                <Sliders size={15} /> {t("Camera Controls")}
+                <SlidersHorizontal size={13} /> Camera Controls
               </span>
-              <ChevronDown size={14} />
+              <ChevronDown size={12} />
             </button>
-          </section>
+            <button
+              onClick={runVisionTest}
+              disabled={isAnalyzing || mediaType !== "video" || !uploadedFile}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-[11px] transition-all ${
+                isAnalyzing || mediaType !== "video" || !uploadedFile
+                  ? "bg-white/[0.02] border-white/[0.05] text-white/30 cursor-not-allowed"
+                  : "bg-white/[0.04] border-white/[0.12] text-white/75 hover:bg-white/[0.08]"
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Sparkles size={13} /> {isAnalyzing ? "Analyzing Video..." : "Vision Test"}
+              </span>
+              <ChevronDown size={12} />
+            </button>
+            {visionError && <p className="text-[10px] text-red-300/90">{visionError}</p>}
+            {visionResult && (
+              <div className="max-h-44 overflow-y-auto rounded-xl border border-white/[0.08] bg-black/40 p-3 text-[10px] leading-relaxed text-white/70">
+                {visionResult}
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="p-5 border-t border-white/10 bg-black/40">
+        <div className="p-4 border-t border-white/[0.04] bg-black/60">
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
-            className={`w-full h-11 rounded-xl kv-font-display text-[11px] uppercase tracking-[0.18em] font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
+            className={`w-full h-10 rounded-xl text-[11px] font-semibold uppercase tracking-[0.12em] transition-all duration-200 flex items-center justify-center gap-2 ${
               isGenerating
-                ? "bg-zinc-900 text-zinc-500 border border-white/10 cursor-not-allowed"
-                : "kv-button-primary"
+                ? "bg-white/[0.03] text-white/30 border border-white/[0.06] cursor-not-allowed"
+                : "bg-white text-black hover:bg-white/90 hover:scale-[1.02] active:scale-[0.98]"
             }`}
           >
             {isGenerating ? (
               <>
-                <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.25s]" />
-                <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.1s]" />
-                <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" />
-                {t("Rendering")}
+                <span className="w-1 h-1 bg-white/40 rounded-full animate-bounce [animation-delay:-0.2s]" />
+                <span className="w-1 h-1 bg-white/40 rounded-full animate-bounce [animation-delay:-0.1s]" />
+                <span className="w-1 h-1 bg-white/40 rounded-full animate-bounce" />
+                Rendering
               </>
             ) : (
               <>
-                <Zap size={14} className="fill-black" /> {t("Generate Video")}
+                <Zap size={13} className="fill-black" /> Generate
               </>
             )}
           </button>
-          <p className="text-center mt-3 text-[10px] uppercase tracking-[0.18em] text-zinc-600">
-            {t("Cost 25 credits")}
+          <p className="text-center mt-2.5 text-[9px] uppercase tracking-[0.14em] text-white/20">
+            Cost 25 credits
           </p>
         </div>
       </aside>
 
-      <section className="flex-1 min-w-0 h-full flex flex-col relative z-10">
-        <header className="h-16 border-b border-white/10 px-6 flex items-center justify-between bg-black/35 backdrop-blur-2xl">
-          <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-kv-pulse" />
-            <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">{t("Realtime Preview")}</p>
+      <section className="flex-1 min-w-0 h-full flex flex-col relative">
+        <header className="h-14 border-b border-white/[0.04] px-5 flex items-center justify-between bg-black/40 backdrop-blur-2xl">
+          <div className="flex items-center gap-2.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/80 animate-pulse" />
+            <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Preview</p>
           </div>
           <div className="flex items-center gap-2">
-            <button className="w-9 h-9 rounded-xl kv-glass-soft text-zinc-400 hover:text-white transition-colors flex items-center justify-center">
-              <Layers size={16} />
+            <button className="w-8 h-8 rounded-lg bg-white/[0.03] border border-white/[0.06] text-white/40 hover:text-white/80 hover:bg-white/[0.06] transition-all flex items-center justify-center">
+              <Layers size={14} />
             </button>
-            <button className="w-9 h-9 rounded-xl kv-glass-soft text-zinc-400 hover:text-white transition-colors flex items-center justify-center">
-              <MoreHorizontal size={16} />
+            <button className="w-8 h-8 rounded-lg bg-white/[0.03] border border-white/[0.06] text-white/40 hover:text-white/80 hover:bg-white/[0.06] transition-all flex items-center justify-center">
+              <MoreHorizontal size={14} />
             </button>
           </div>
         </header>
 
-        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-6 space-y-6">
-          <div className="w-full max-w-[1300px] mx-auto">
-            <div className="kv-glass kv-panel-shadow rounded-[24px] p-4 sm:p-5">
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide p-5 space-y-4">
+          <div className="w-full max-w-[1100px] mx-auto">
+            <div className={`${glassCard} p-3`}>
               <div
                 className={
                   isFullScreen
-                    ? "fixed inset-0 z-[120] bg-black flex items-center justify-center animate-kv-fade-up"
-                    : "relative w-full aspect-video rounded-[18px] overflow-hidden bg-[#050505] border border-white/10 kv-ring-accent"
+                    ? "fixed inset-0 z-[100] bg-black flex items-center justify-center animate-in fade-in duration-200"
+                    : "relative w-full aspect-video rounded-[16px] overflow-hidden bg-black border border-white/[0.05]"
                 }
               >
                 <video
@@ -618,45 +605,31 @@ export const VideoCreator = () => {
                 />
 
                 {!isPlaying && currentTime === 0 && !isGenerating && (
-                  <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/cyberpunk_rain/1280/720')] bg-cover bg-center pointer-events-none">
-                    <div className="absolute inset-0 bg-black/45" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 to-black pointer-events-none">
+                    <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/cyberpunk_rain/1280/720')] bg-cover bg-center opacity-30" />
+                    <div className="absolute inset-0 bg-black/50" />
                   </div>
                 )}
 
                 {isGenerating && (
-                  <div className="absolute inset-0 bg-black/90 backdrop-blur-xl z-20 flex flex-col items-center justify-center gap-6">
+                  <div className="absolute inset-0 bg-black/95 backdrop-blur-2xl z-20 flex flex-col items-center justify-center gap-5">
                     <div className="relative">
-                      <div className="absolute inset-0 bg-white/10 blur-2xl rounded-full animate-kv-pulse" />
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="url(#kv-gradient-render)"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="w-20 h-20 relative z-10"
-                      >
-                        <defs>
-                          <linearGradient id="kv-gradient-render" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop offset="0%" stopColor="#e4e4e7" />
-                            <stop offset="50%" stopColor="#ffffff" />
-                            <stop offset="100%" stopColor="#a1a1aa" />
-                          </linearGradient>
-                        </defs>
-                        <path className="kv-render-path" d="M12 12c-2-2.67-4-4-6-4a4 4 0 1 0 0 8c2 0 4-1.33 6-4Zm0 0c2 2.67 4 4 6 4a4 4 0 1 0 0-8c-2 0-4 1.33-6 4Z" />
-                      </svg>
+                      <div className="absolute inset-0 bg-white/5 blur-2xl rounded-full animate-pulse" />
+                      <div className="w-16 h-16 rounded-full border border-white/10 flex items-center justify-center relative">
+                        <div className="w-12 h-12 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
+                      </div>
                     </div>
                     <div className="text-center">
-                      <p className="kv-font-display text-sm tracking-[0.24em] uppercase text-zinc-100">{t("Rendering Sequence")}</p>
-                      <p className="text-xs text-zinc-500 mt-2">{t("Building motion, lighting, and camera path")}</p>
+                      <p className="text-[12px] font-medium text-white/80 tracking-tight">Rendering</p>
+                      <p className="text-[10px] text-white/30 mt-1">Building motion & lighting</p>
                     </div>
                   </div>
                 )}
 
                 {!isPlaying && !isGenerating && (
                   <button onClick={togglePlay} className="absolute inset-0 z-10 flex items-center justify-center group">
-                    <div className="w-20 h-20 rounded-full kv-glass border border-white/30 flex items-center justify-center transition-all group-hover:scale-105">
-                      <Play size={34} className="fill-white text-white ml-1" />
+                    <div className="w-16 h-16 rounded-full bg-white/[0.08] backdrop-blur-xl border border-white/20 flex items-center justify-center transition-all group-hover:scale-105 group-hover:bg-white/[0.12]">
+                      <Play size={28} className="fill-white text-white ml-0.5" />
                     </div>
                   </button>
                 )}
@@ -664,41 +637,38 @@ export const VideoCreator = () => {
                 {isFullScreen && (
                   <button
                     onClick={toggleFullScreen}
-                    className="absolute top-5 right-5 z-30 w-10 h-10 rounded-full kv-glass-soft text-white flex items-center justify-center"
+                    className="absolute top-4 right-4 z-30 w-9 h-9 rounded-xl bg-white/[0.08] backdrop-blur-xl border border-white/10 text-white flex items-center justify-center hover:bg-white/[0.12] transition-colors"
                   >
-                    <X size={18} />
+                    <X size={16} />
                   </button>
                 )}
 
                 <div
-                  className={`absolute bottom-0 left-0 right-0 p-5 bg-gradient-to-t from-black/90 via-black/55 to-transparent z-30 transition-opacity ${
-                    isPlaying && !isFullScreen ? "opacity-0 group-hover:opacity-100" : "opacity-100"
+                  className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent z-20 transition-opacity duration-200 ${
+                    isPlaying && !isFullScreen ? "opacity-0 hover:opacity-100" : "opacity-100"
                   }`}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="flex items-center gap-3 sm:gap-4">
-                    <button onClick={togglePlay} className="text-zinc-100 hover:text-white transition-colors">
-                      {isPlaying ? <Pause size={19} fill="currentColor" /> : <Play size={19} fill="currentColor" />}
+                  <div className="flex items-center gap-3">
+                    <button onClick={togglePlay} className="text-white/80 hover:text-white transition-colors">
+                      {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
                     </button>
 
-                    <span className="text-[11px] font-mono text-zinc-300 min-w-[86px]">
+                    <span className="text-[10px] font-mono text-white/50 min-w-[70px]">
                       {formatTime(currentTime)} / {formatTime(videoDuration)}
                     </span>
 
-                    <div className="flex-1 h-8 flex items-center cursor-pointer" onClick={handleSeek}>
-                      <div className="w-full h-1.5 rounded-full bg-white/20 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-white/90"
-                          style={{ width: `${progress}%` }}
-                        />
+                    <div className="flex-1 h-6 flex items-center cursor-pointer group" onClick={handleSeek}>
+                      <div className="w-full h-1 rounded-full bg-white/15 overflow-hidden">
+                        <div className="h-full rounded-full bg-white/70 transition-all" style={{ width: `${progress}%` }} />
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2 group/vol">
-                      <button onClick={toggleMute} className="text-zinc-300 hover:text-white transition-colors">
+                      <button onClick={toggleMute} className="text-white/50 hover:text-white/80 transition-colors">
                         {renderVolumeIcon()}
                       </button>
-                      <div className="w-0 overflow-hidden group-hover/vol:w-20 transition-[width] duration-300">
+                      <div className="w-0 overflow-hidden group-hover/vol:w-16 transition-[width] duration-200">
                         <input
                           type="range"
                           min="0"
@@ -706,22 +676,22 @@ export const VideoCreator = () => {
                           step="0.05"
                           value={volume}
                           onChange={handleVolumeChange}
-                          className="w-20 h-1.5 accent-white"
+                          className="w-16 h-1 accent-white"
                         />
                       </div>
                     </div>
 
-                    <div className="w-px h-4 bg-white/20" />
+                    <div className="w-px h-3 bg-white/10" />
 
-                    <button className="text-zinc-300 hover:text-white transition-colors" title={t("Download")}>
-                      <Download size={18} />
+                    <button className="text-white/40 hover:text-white/80 transition-colors" title="Download">
+                      <Download size={15} />
                     </button>
                     <button
                       onClick={toggleFullScreen}
-                      className="text-zinc-300 hover:text-white transition-colors"
-                      title={isFullScreen ? t("Exit Fullscreen") : t("Fullscreen")}
+                      className="text-white/40 hover:text-white/80 transition-colors"
+                      title={isFullScreen ? "Exit" : "Fullscreen"}
                     >
-                      {isFullScreen ? <Minimize size={18} /> : <Maximize size={18} />}
+                      {isFullScreen ? <Minimize size={15} /> : <Maximize size={15} />}
                     </button>
                   </div>
                 </div>
@@ -729,49 +699,45 @@ export const VideoCreator = () => {
             </div>
           </div>
 
-          <div className="w-full max-w-[1300px] mx-auto kv-glass-soft kv-panel-shadow rounded-2xl p-4 sm:p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">{t("Recent Sessions")}</h3>
-              <button className="text-[11px] text-zinc-500 hover:text-zinc-200 transition-colors">{t("View All")}</button>
-            </div>
+          <div className="w-full max-w-[1100px] mx-auto">
+            <div className={`${glassCard} p-3`}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-[10px] uppercase tracking-[0.14em] text-white/40 font-medium">Recent</h3>
+                <button className="text-[10px] text-white/30 hover:text-white/60 transition-colors">View all</button>
+              </div>
 
-            <div
-              ref={scrollRef}
-              className="flex gap-3 overflow-x-auto pb-2 hide-scrollbar cursor-grab active:cursor-grabbing select-none"
-              onMouseDown={handleMouseDown}
-              onMouseLeave={handleMouseLeave}
-              onMouseUp={handleMouseUp}
-              onMouseMove={handleMouseMove}
-            >
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                <button
-                  key={i}
-                  onClick={() => {
-                    setVideoSrc(
-                      "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-                    );
-                    setIsPlaying(true);
-                    setTimeout(() => void videoRef.current?.play(), 100);
-                  }}
-                  className="flex-shrink-0 w-56 aspect-video rounded-xl overflow-hidden relative border border-white/10 hover:border-white/25 transition-all group"
-                >
-                  <img
-                    src={`https://picsum.photos/seed/vid_thumb_${i}/400/225`}
-                    alt={`Session ${i}`}
-                    className="w-full h-full object-cover opacity-55 group-hover:opacity-85 transition-opacity"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-transparent" />
-                  <div className="absolute top-2 left-2 px-2 py-1 rounded-full kv-glass-soft text-[10px] uppercase tracking-[0.12em] text-zinc-300">
-                    {selectedDuration}
-                  </div>
-                  <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-                    <div className="text-[10px] text-zinc-300 uppercase tracking-[0.16em]">{t("Take {{index}}", { index: i })}</div>
-                    <div className="w-7 h-7 rounded-full kv-glass-soft border border-white/20 flex items-center justify-center">
-                      <Play size={12} className="fill-white text-white ml-[1px]" />
+              <div
+                ref={scrollRef}
+                className="flex gap-2.5 overflow-x-auto scrollbar-hide cursor-grab active:cursor-grabbing select-none pb-1"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setVideoSrc("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4");
+                      setIsPlaying(true);
+                      setTimeout(() => void videoRef.current?.play(), 100);
+                    }}
+                    className="flex-shrink-0 w-44 aspect-video rounded-xl overflow-hidden relative border border-white/[0.05] hover:border-white/[0.15] transition-all group"
+                  >
+                    <img
+                      src={`https://picsum.photos/seed/vid_thumb_${i}/400/225`}
+                      alt={`Session ${i}`}
+                      className="w-full h-full object-cover opacity-50 group-hover:opacity-80 transition-opacity"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                    <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md bg-black/50 backdrop-blur-md border border-white/[0.08] text-[9px] uppercase tracking-[0.1em] text-white/50">
+                      {selectedDuration}
                     </div>
-                  </div>
-                </button>
-              ))}
+                    <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+                      <div className="text-[9px] text-white/60 uppercase tracking-[0.12em]">Take {i}</div>
+                      <div className="w-6 h-6 rounded-full bg-white/[0.1] backdrop-blur-md border border-white/[0.15] flex items-center justify-center">
+                        <Play size={10} className="fill-white text-white ml-[1px]" />
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>

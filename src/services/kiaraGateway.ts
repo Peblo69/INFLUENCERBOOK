@@ -173,7 +173,7 @@ export type KiaraMediaAction =
 
 export interface KiaraMediaRequest {
   action: KiaraMediaAction;
-  provider?: "replicate" | "wavespeed";
+  provider?: "replicate" | "wavespeed" | "openrouter";
   image?: string;
   video?: string;
   media?: string;
@@ -193,15 +193,50 @@ export interface KiaraMediaRequest {
   top_p?: number;
   target_resolution?: string;
   output_format?: "jpeg" | "png";
+  model?: string;
+  reasoning?: {
+    enabled?: boolean;
+    effort?: "none" | "minimal" | "low" | "medium" | "high";
+    max_tokens?: number;
+    exclude?: boolean;
+  };
+  reasoning_enabled?: boolean;
 }
 
 export interface KiaraMediaResponse {
   success: boolean;
   output: string | null;
+  model?: string;
+  citations?: string[] | null;
+  reasoning?: unknown;
+  reasoning_details?: unknown;
+  usage?: Record<string, unknown> | null;
 }
 
 export const kiaraMedia = async (params: KiaraMediaRequest): Promise<KiaraMediaResponse> => {
   return kiaraRequest<KiaraMediaResponse>("kiara-media", params);
+};
+
+export const describeVideoWithOpenRouter = async (params: {
+  media: string;
+  prompt?: string;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  reasoning_enabled?: boolean;
+  reasoning?: KiaraMediaRequest["reasoning"];
+}): Promise<KiaraMediaResponse> => {
+  return kiaraMedia({
+    action: "describe-video",
+    provider: "openrouter",
+    media: params.media,
+    prompt: params.prompt,
+    model: params.model,
+    temperature: params.temperature,
+    max_tokens: params.max_tokens,
+    reasoning_enabled: params.reasoning_enabled,
+    reasoning: params.reasoning,
+  });
 };
 
 // ==================== INPAINTING (OpenAI Image Edit) ====================
@@ -219,6 +254,106 @@ export const kiaraInpaint = async (params: KiaraInpaintRequest): Promise<KiaraMe
   return kiaraRequest<KiaraMediaResponse>("kiara-media", {
     action: "inpaint",
     ...params,
+  });
+};
+
+// ==================== TREND TRACKING (EnsembleData) ====================
+
+export interface TrendPost {
+  platform: string;
+  desc?: string;
+  title?: string;
+  caption?: string;
+  author?: string;
+  channel?: string;
+  subreddit?: string;
+  plays?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  score?: number;
+  views?: number;
+}
+
+export interface KiaraTrendsResponse {
+  success: boolean;
+  keyword?: string;
+  trends?: Record<string, TrendPost[]>;
+  posts?: TrendPost[];
+  fetched_at?: string;
+}
+
+/** Fetch trending content across platforms (TikTok, Reddit, Instagram, YouTube, Threads, Twitter) */
+export const fetchTrends = async (params?: {
+  keyword?: string;
+  platforms?: string[];
+  subreddit?: string;
+  twitter_id?: string;
+  twitter_user?: string; // legacy fallback
+}): Promise<KiaraTrendsResponse> => {
+  const twitterId = params?.twitter_id ?? params?.twitter_user;
+  return kiaraRequest<KiaraTrendsResponse>("kiara-trends", {
+    action: "fetch-trends",
+    ...params,
+    ...(twitterId ? { twitter_id: twitterId } : {}),
+  });
+};
+
+/** Search a specific platform by keyword */
+export const searchPlatform = async (
+  platform: "tiktok" | "instagram" | "youtube" | "reddit" | "threads" | "twitter",
+  query: string
+): Promise<KiaraTrendsResponse> => {
+  return kiaraRequest<KiaraTrendsResponse>("kiara-trends", {
+    action: "search",
+    platform,
+    query,
+  });
+};
+
+/** Get TikTok posts for a specific hashtag */
+export const tiktokHashtag = async (hashtag: string): Promise<KiaraTrendsResponse> => {
+  return kiaraRequest<KiaraTrendsResponse>("kiara-trends", {
+    action: "tiktok-hashtag",
+    hashtag,
+  });
+};
+
+/** Get hot posts from a Reddit subreddit */
+export const redditHot = async (
+  subreddit?: string,
+  sort?: string,
+  period?: string
+): Promise<KiaraTrendsResponse> => {
+  return kiaraRequest<KiaraTrendsResponse>("kiara-trends", {
+    action: "reddit-hot",
+    subreddit,
+    sort,
+    period,
+  });
+};
+
+/** Search Threads by keyword */
+export const threadsSearch = async (keyword: string): Promise<KiaraTrendsResponse> => {
+  return kiaraRequest<KiaraTrendsResponse>("kiara-trends", {
+    action: "threads-search",
+    keyword,
+  });
+};
+
+/** Get a Threads user's posts */
+export const threadsUserPosts = async (username: string): Promise<KiaraTrendsResponse> => {
+  return kiaraRequest<KiaraTrendsResponse>("kiara-trends", {
+    action: "threads-user",
+    username,
+  });
+};
+
+/** Get a Twitter/X user's tweets by numeric user ID */
+export const twitterUserTweets = async (id: string): Promise<KiaraTrendsResponse> => {
+  return kiaraRequest<KiaraTrendsResponse>("kiara-trends", {
+    action: "twitter-user",
+    id,
   });
 };
 

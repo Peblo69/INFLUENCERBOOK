@@ -3,15 +3,23 @@
 // Combines keyword + semantic search with cooldown
 // ============================================
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
-// Supabase automatically provides these - use built-in env vars
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? 'https://fonzxpqtsdfhvlyvqjru.supabase.co';
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+const SUPABASE_URL =
+  Deno.env.get("SUPABASE_URL") ?? "https://fonzxpqtsdfhvlyvqjru.supabase.co";
+const SUPABASE_SERVICE_ROLE_KEY =
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
+  Deno.env.get("SUPABASE_ANON_KEY") ??
+  "";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 interface MemoryRetrievalRequest {
-  userId: string;
   userMessage: string;
   maxMemories?: number;
   cooldownHours?: number;
@@ -28,156 +36,268 @@ interface Memory {
   relevance?: number;
   last_accessed: string;
   access_count: number;
+  metadata?: Record<string, unknown> | null;
 }
 
+interface ProfileMemorySections {
+  likes: string[];
+  dislikes: string[];
+  goals: string[];
+  capabilities: string[];
+  tone: string[];
+}
+
+const toObject = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+const normalizeStringList = (value: unknown, limit = 8): string[] => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const normalized = item.trim().replace(/\s+/g, " ").slice(0, 180);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(normalized);
+    if (output.length >= limit) break;
+  }
+  return output;
+};
+
+const getProfileSections = (preferences: unknown): ProfileMemorySections => {
+  const pref = toObject(preferences);
+  const profileMemory = toObject(pref.memory_profile);
+  return {
+    likes: normalizeStringList(profileMemory.likes, 8),
+    dislikes: normalizeStringList(profileMemory.dislikes, 8),
+    goals: normalizeStringList(profileMemory.goals, 8),
+    capabilities: normalizeStringList(profileMemory.capabilities, 8),
+    tone: normalizeStringList(profileMemory.tone, 8),
+  };
+};
+
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+const getMemoryConfidence = (memory: Memory): number => {
+  const metadata = toObject(memory.metadata);
+  if (typeof metadata.confidence === "number") {
+    return clamp01(metadata.confidence);
+  }
+  return clamp01(memory.importance ?? 0.6);
+};
+
+const getSelectionReason = (memory: Memory, strategy: string): string => {
+  if (strategy === "semantic" && typeof memory.similarity === "number") {
+    return `semantic similarity ${memory.similarity.toFixed(3)}`;
+  }
+  if (strategy === "keyword" && typeof memory.relevance === "number") {
+    return `keyword relevance ${memory.relevance.toFixed(3)}`;
+  }
+  if (strategy === "fallback") {
+    return `fallback by importance ${Number(memory.importance ?? 0).toFixed(2)}`;
+  }
+  return "selected by ranking";
+};
+
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      },
-    });
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false },
+    });
+
+    const jwt = authHeader.replace("Bearer ", "");
     const {
-      userId,
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(jwt);
+
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const userId = user.id;
+    const {
       userMessage,
       maxMemories = 8,
       cooldownHours = 24,
       useSemanticSearch = true,
     }: MemoryRetrievalRequest = await req.json();
 
-    if (!userId || !userMessage) {
+    if (!userMessage || userMessage.trim().length === 0) {
       return new Response(
-        JSON.stringify({ error: 'userId and userMessage are required' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: "userMessage is required" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    console.log(`🧠 Retrieving memories for user ${userId}`);
-    console.log(`   Message: "${userMessage.substring(0, 100)}..."`);
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("preferences")
+      .eq("id", userId)
+      .maybeSingle();
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const preferences = toObject(profile?.preferences);
+    const profileSections = getProfileSections(preferences);
+
+    if (preferences.memory_enabled === false) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          memories: [],
+          count: 0,
+          search_strategy: "disabled",
+          profile_sections: profileSections,
+          tone_hints: profileSections.tone.slice(0, 4),
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     let retrievedMemories: Memory[] = [];
-    let searchStrategy = 'none';
+    let searchStrategy = "none";
 
-    // STRATEGY 1: Try keyword-based search first (fast!)
+    // Strategy 1: keyword search
     try {
-      console.log('📝 Trying keyword search...');
       const { data: keywordMemories, error: keywordError } = await supabase.rpc(
-        'search_memories_keyword',
+        "search_memories_keyword",
         {
           query_text: userMessage,
           query_user_id: userId,
           match_count: maxMemories,
           cooldown_hours: cooldownHours,
-        }
+        },
       );
 
-      if (!keywordError && keywordMemories && keywordMemories.length > 0) {
+      if (!keywordError && Array.isArray(keywordMemories) && keywordMemories.length > 0) {
         retrievedMemories = keywordMemories;
-        searchStrategy = 'keyword';
-        console.log(`✅ Keyword search found ${keywordMemories.length} memories`);
-      } else {
-        console.log('⏭️ Keyword search found nothing, trying semantic search...');
+        searchStrategy = "keyword";
       }
     } catch (error) {
-      console.error('Keyword search failed:', error);
+      console.error("[retrieve-memories] Keyword search failed:", error);
     }
 
-    // STRATEGY 2: Fall back to semantic search if keyword found nothing
+    // Strategy 2: semantic search
     if (retrievedMemories.length === 0 && useSemanticSearch) {
       try {
-        console.log('🔍 Generating embedding for semantic search...');
-
-        // Generate embedding for user message
         const embeddingResponse = await fetch(`${SUPABASE_URL}/functions/v1/generate-embedding`, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            ...(Deno.env.get("SUPABASE_ANON_KEY")
+              ? { apikey: Deno.env.get("SUPABASE_ANON_KEY") as string }
+              : {}),
           },
           body: JSON.stringify({ text: userMessage }),
         });
 
-        if (!embeddingResponse.ok) {
-          throw new Error('Failed to generate embedding');
-        }
+        if (embeddingResponse.ok) {
+          const embeddingData = await embeddingResponse.json();
+          const embedding = embeddingData?.embedding;
 
-        const { embedding } = await embeddingResponse.json();
+          if (Array.isArray(embedding) && embedding.length > 0) {
+            const { data: semanticMemories, error: semanticError } = await supabase.rpc(
+              "search_memories_semantic",
+              {
+                query_embedding: embedding,
+                query_user_id: userId,
+                match_threshold: 0.7,
+                match_count: maxMemories,
+                cooldown_hours: cooldownHours,
+              },
+            );
 
-        console.log('🔍 Running semantic search...');
-        const { data: semanticMemories, error: semanticError } = await supabase.rpc(
-          'search_memories_semantic',
-          {
-            query_embedding: embedding,
-            query_user_id: userId,
-            match_threshold: 0.7,
-            match_count: maxMemories,
-            cooldown_hours: cooldownHours,
+            if (!semanticError && Array.isArray(semanticMemories) && semanticMemories.length > 0) {
+              retrievedMemories = semanticMemories;
+              searchStrategy = "semantic";
+            }
           }
-        );
-
-        if (!semanticError && semanticMemories && semanticMemories.length > 0) {
-          retrievedMemories = semanticMemories;
-          searchStrategy = 'semantic';
-          console.log(`✅ Semantic search found ${semanticMemories.length} memories`);
-        } else {
-          console.log('⏭️ Semantic search found nothing');
         }
       } catch (error) {
-        console.error('Semantic search failed:', error);
+        console.error("[retrieve-memories] Semantic search failed:", error);
       }
     }
 
-    // STRATEGY 3: If still nothing, get most important recent memories as fallback
+    // Strategy 3: fallback
     if (retrievedMemories.length === 0) {
-      console.log('📊 Fallback: Getting most important recent memories...');
       try {
         const { data: fallbackMemories, error: fallbackError } = await supabase
-          .from('memories')
-          .select('id, content, memory_type, category, importance, last_accessed, access_count')
-          .eq('user_id', userId)
-          .eq('is_active', true)
-          .order('importance', { ascending: false })
-          .order('created_at', { ascending: false })
+          .from("memories")
+          .select("id, content, memory_type, category, importance, last_accessed, access_count")
+          .eq("user_id", userId)
+          .eq("is_active", true)
+          .order("importance", { ascending: false })
+          .order("created_at", { ascending: false })
           .limit(Math.min(3, maxMemories));
 
-        if (!fallbackError && fallbackMemories) {
+        if (!fallbackError && Array.isArray(fallbackMemories)) {
           retrievedMemories = fallbackMemories;
-          searchStrategy = 'fallback';
-          console.log(`✅ Fallback found ${fallbackMemories.length} memories`);
+          searchStrategy = "fallback";
         }
       } catch (error) {
-        console.error('Fallback search failed:', error);
+        console.error("[retrieve-memories] Fallback failed:", error);
       }
     }
 
-    // Balance memory types (prevent all same type)
     const balancedMemories = balanceMemoryTypes(retrievedMemories, maxMemories);
 
-    console.log(`🎯 Final selection: ${balancedMemories.length} memories (strategy: ${searchStrategy})`);
-
-    // Mark memories as accessed (for cooldown tracking)
     const memoryIds = balancedMemories.map((m) => m.id);
-    if (memoryIds.length > 0) {
-      for (const memoryId of memoryIds) {
-        await supabase.rpc('mark_memory_accessed', { memory_id: memoryId });
-      }
-      console.log(`✅ Marked ${memoryIds.length} memories as accessed`);
+    for (const memoryId of memoryIds) {
+      await supabase.rpc("mark_memory_accessed", { memory_id: memoryId });
     }
 
-    // Format memories for injection
-    const formattedMemories = balancedMemories.map((m) => ({
-      type: m.memory_type,
-      category: m.category,
-      content: m.content,
-      importance: m.importance,
-    }));
+    const metadataMap = new Map<string, Record<string, unknown>>();
+    if (memoryIds.length > 0) {
+      const { data: metadataRows } = await supabase
+        .from("memories")
+        .select("id, metadata")
+        .in("id", memoryIds);
+
+      for (const row of metadataRows || []) {
+        metadataMap.set(row.id, toObject(row.metadata));
+      }
+    }
+
+    const formattedMemories = balancedMemories.map((m) => {
+      const memoryWithMetadata: Memory = {
+        ...m,
+        metadata: metadataMap.get(m.id) ?? m.metadata ?? null,
+      };
+      const confidence = getMemoryConfidence(memoryWithMetadata);
+      const reason = getSelectionReason(memoryWithMetadata, searchStrategy);
+
+      return {
+        id: m.id,
+        type: m.memory_type,
+        category: m.category,
+        content: m.content,
+        importance: m.importance,
+        confidence,
+        reason,
+        similarity: typeof m.similarity === "number" ? m.similarity : undefined,
+        relevance: typeof m.relevance === "number" ? m.relevance : undefined,
+      };
+    });
 
     return new Response(
       JSON.stringify({
@@ -185,65 +305,40 @@ serve(async (req) => {
         memories: formattedMemories,
         count: formattedMemories.length,
         search_strategy: searchStrategy,
-      }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
+        profile_sections: profileSections,
+        tone_hints: profileSections.tone.slice(0, 4),
+        debug: {
+          strategy: searchStrategy,
+          selected_count: formattedMemories.length,
+          memories: formattedMemories,
         },
-      }
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error) {
-    console.error('Error retrieving memories:', error);
+    console.error("[retrieve-memories] Fatal:", error);
     return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });
 
-// Helper function: Balance memory types to prevent all same type
 function balanceMemoryTypes(memories: Memory[], maxCount: number): Memory[] {
-  if (memories.length <= maxCount) {
-    return memories;
-  }
+  if (memories.length <= maxCount) return memories;
 
   const typeCount: Record<string, number> = {};
-  const maxPerType = 3; // Max 3 memories of same type
+  const maxPerType = 3;
   const result: Memory[] = [];
 
   for (const memory of memories) {
-    const type = memory.memory_type || 'other';
-
-    if ((typeCount[type] || 0) >= maxPerType) {
-      continue; // Skip if this type is already maxed out
-    }
+    const type = memory.memory_type || "other";
+    if ((typeCount[type] || 0) >= maxPerType) continue;
 
     result.push(memory);
     typeCount[type] = (typeCount[type] || 0) + 1;
-
-    if (result.length >= maxCount) {
-      break;
-    }
+    if (result.length >= maxCount) break;
   }
 
   return result;
-}
-
-// Helper function: Extract keywords from text
-function extractKeywords(text: string): string[] {
-  const stopWords = new Set([
-    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-    'of', 'with', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-    'should', 'may', 'might', 'can', 'i', 'you', 'he', 'she', 'it', 'we',
-    'they', 'this', 'that', 'these', 'those',
-  ]);
-
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s]/g, ' ')
-    .split(/\s+/)
-    .filter((word) => word.length > 3 && !stopWords.has(word));
 }

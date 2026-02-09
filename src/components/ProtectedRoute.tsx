@@ -1,6 +1,7 @@
-import { ReactNode, Suspense } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { ReactNode, Suspense, useEffect } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAuthModal } from '@/contexts/AuthModalContext';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -14,32 +15,48 @@ const InlineAuthCheck = () => (
   </div>
 );
 
+// Pops up auth modal, does NOT render protected content.
+// If user dismisses modal → navigate to landing.
+const AuthGate = () => {
+  const { showAuthModal } = useAuthModal();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    showAuthModal(() => {
+      // onDismiss: user closed modal without logging in → go to landing
+      navigate('/', { replace: true });
+    });
+  }, [showAuthModal, navigate]);
+
+  // Neutral dark page — no protected content visible
+  return (
+    <div className="flex-1 min-h-screen bg-black" />
+  );
+};
+
 export function ProtectedRoute({ children, fallback }: ProtectedRouteProps) {
   const { user, loading, isEmailVerified } = useAuth();
   const location = useLocation();
 
   // Only show inline loader during initial auth check
-  // After that, let the children render while auth settles in background
   if (loading && !user) {
     return <InlineAuthCheck />;
   }
 
-  // Not authenticated - redirect to auth page
+  // Not authenticated — show modal popup, no protected content
   if (!user) {
     if (fallback) {
       return <>{fallback}</>;
     }
-
-    return <Navigate to="/auth" replace state={{ from: location.pathname }} />;
+    return <AuthGate />;
   }
 
-  // Authenticated but not verified - redirect to auth page
+  // Authenticated but not verified
   if (user && !isEmailVerified) {
     return <Navigate to="/auth?verify=1" replace state={{ from: location.pathname }} />;
   }
 
-  // Authenticated and verified - render children immediately
-  // Wrap in Suspense to handle any lazy-loaded children gracefully
+  // Authenticated and verified
   return (
     <Suspense fallback={<InlineAuthCheck />}>
       {children}
@@ -47,7 +64,7 @@ export function ProtectedRoute({ children, fallback }: ProtectedRouteProps) {
   );
 }
 
-// HOC version for wrapping pages
+// HOC version
 export function withAuth<P extends object>(Component: React.ComponentType<P>) {
   return function AuthenticatedComponent(props: P) {
     return (

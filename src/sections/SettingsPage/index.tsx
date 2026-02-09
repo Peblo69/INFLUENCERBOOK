@@ -3,6 +3,24 @@ import { supabase } from "@/lib/supabase";
 import { useI18n } from "@/contexts/I18nContext";
 import { Languages } from "lucide-react";
 import type { AppLanguage } from "@/i18n/translations";
+import { useLocation } from "react-router-dom";
+import { getKiaraBaseUrl } from "@/services/kiaraClient";
+
+interface MemoryProfile {
+  likes: string[];
+  dislikes: string[];
+  goals: string[];
+  capabilities: string[];
+  tone: string[];
+}
+
+interface MemoryProfileEditor {
+  likes: string;
+  dislikes: string;
+  goals: string;
+  capabilities: string;
+  tone: string;
+}
 
 interface UserProfile {
   id: string;
@@ -17,20 +35,122 @@ interface UserProfile {
     memory_enabled: boolean;
     auto_save: boolean;
     language: string;
+    memory_profile?: MemoryProfile;
   };
 }
 
+interface MemoryStats {
+  total: number;
+  active: number;
+}
+
+interface MemoryRow {
+  id: string;
+  content: string;
+  category: string | null;
+  memory_type: string | null;
+  importance: number | null;
+  is_active: boolean;
+  created_at: string;
+  metadata: Record<string, any> | null;
+}
+
 export const SettingsPage = () => {
+  const location = useLocation();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
-  const [activeTab, setActiveTab] = useState("profile");
+  const [activeTab, setActiveTab] = useState(location.pathname === "/memories" ? "memory" : "profile");
+  const [memoryEditor, setMemoryEditor] = useState<MemoryProfileEditor>({
+    likes: "",
+    dislikes: "",
+    goals: "",
+    capabilities: "",
+    tone: "",
+  });
+  const [memoryStats, setMemoryStats] = useState<MemoryStats>({ total: 0, active: 0 });
+  const [debugPrompt, setDebugPrompt] = useState("");
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugData, setDebugData] = useState<any | null>(null);
+  const [memoryRows, setMemoryRows] = useState<MemoryRow[]>([]);
+  const [memoryRowsLoading, setMemoryRowsLoading] = useState(false);
   const { language, setLanguage, languages } = useI18n();
 
   useEffect(() => {
     fetchProfile();
   }, []);
+
+  useEffect(() => {
+    if (location.pathname === "/memories") {
+      setActiveTab("memory");
+    }
+  }, [location.pathname]);
+
+  const normalizeList = (value: unknown, limit = 20): string[] => {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const item of value) {
+      if (typeof item !== "string") continue;
+      const normalized = item.trim().replace(/\s+/g, " ").slice(0, 180);
+      if (!normalized) continue;
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(normalized);
+      if (out.length >= limit) break;
+    }
+    return out;
+  };
+
+  const parseEditorList = (raw: string): string[] => {
+    return normalizeList(
+      raw
+        .split(/\r?\n/g)
+        .map((line) => line.trim())
+        .filter(Boolean),
+      20
+    );
+  };
+
+  const loadMemoryStats = async (userId: string) => {
+    const [{ count: totalCount }, { count: activeCount }] = await Promise.all([
+      supabase
+        .from("memories")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId),
+      supabase
+        .from("memories")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("is_active", true),
+    ]);
+
+    setMemoryStats({
+      total: totalCount || 0,
+      active: activeCount || 0,
+    });
+  };
+
+  const loadMemoryRows = async (userId: string) => {
+    setMemoryRowsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("memories")
+        .select("id, content, category, memory_type, importance, is_active, created_at, metadata")
+        .eq("user_id", userId)
+        .order("updated_at", { ascending: false })
+        .limit(40);
+
+      if (error) throw error;
+      setMemoryRows((data || []) as MemoryRow[]);
+    } catch (error) {
+      console.error("Error loading memory rows:", error);
+    } finally {
+      setMemoryRowsLoading(false);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -48,6 +168,24 @@ export const SettingsPage = () => {
 
       if (error) throw error;
       setProfile(data);
+
+      const memoryProfileRaw = (data?.preferences as any)?.memory_profile || {};
+      const normalizedMemoryProfile = {
+        likes: normalizeList(memoryProfileRaw.likes, 20),
+        dislikes: normalizeList(memoryProfileRaw.dislikes, 20),
+        goals: normalizeList(memoryProfileRaw.goals, 20),
+        capabilities: normalizeList(memoryProfileRaw.capabilities, 20),
+        tone: normalizeList(memoryProfileRaw.tone, 20),
+      };
+      setMemoryEditor({
+        likes: normalizedMemoryProfile.likes.join("\n"),
+        dislikes: normalizedMemoryProfile.dislikes.join("\n"),
+        goals: normalizedMemoryProfile.goals.join("\n"),
+        capabilities: normalizedMemoryProfile.capabilities.join("\n"),
+        tone: normalizedMemoryProfile.tone.join("\n"),
+      });
+      await loadMemoryStats(user.id);
+      await loadMemoryRows(user.id);
     } catch (error) {
       console.error("Error fetching profile:", error);
     } finally {
@@ -105,6 +243,156 @@ export const SettingsPage = () => {
       setMessage("❌ " + error.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveMemoryProfile = async () => {
+    if (!profile) return;
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const normalizedMemoryProfile = {
+        likes: parseEditorList(memoryEditor.likes),
+        dislikes: parseEditorList(memoryEditor.dislikes),
+        goals: parseEditorList(memoryEditor.goals),
+        capabilities: parseEditorList(memoryEditor.capabilities),
+        tone: parseEditorList(memoryEditor.tone),
+      };
+
+      const nextPreferences = {
+        ...(profile.preferences || {}),
+        memory_profile: {
+          likes: normalizedMemoryProfile.likes,
+          dislikes: normalizedMemoryProfile.dislikes,
+          goals: normalizedMemoryProfile.goals,
+          capabilities: normalizedMemoryProfile.capabilities,
+          tone: normalizedMemoryProfile.tone,
+          updated_at: new Date().toISOString(),
+        },
+      };
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({ preferences: nextPreferences })
+        .eq("id", profile.id);
+
+      if (error) throw error;
+
+      setMemoryEditor({
+        likes: normalizedMemoryProfile.likes.join("\n"),
+        dislikes: normalizedMemoryProfile.dislikes.join("\n"),
+        goals: normalizedMemoryProfile.goals.join("\n"),
+        capabilities: normalizedMemoryProfile.capabilities.join("\n"),
+        tone: normalizedMemoryProfile.tone.join("\n"),
+      });
+      setProfile({ ...profile, preferences: nextPreferences });
+      setMessage("✅ Memory profile updated successfully!");
+      setTimeout(() => setMessage(""), 3000);
+    } catch (error: any) {
+      console.error("Error updating memory profile:", error);
+      setMessage("❌ " + error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClearAllMemories = async () => {
+    if (!profile) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      const { error } = await supabase
+        .from("memories")
+        .delete()
+        .eq("user_id", profile.id);
+      if (error) throw error;
+      await loadMemoryStats(profile.id);
+      await loadMemoryRows(profile.id);
+      setDebugData(null);
+      setMessage("✅ All memories cleared.");
+      setTimeout(() => setMessage(""), 3000);
+    } catch (error: any) {
+      console.error("Error clearing memories:", error);
+      setMessage("❌ " + error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runRetrievalDebug = async () => {
+    const prompt = debugPrompt.trim();
+    if (!prompt) return;
+    setDebugLoading(true);
+    setDebugData(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Not authenticated");
+
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const res = await fetch(`${getKiaraBaseUrl()}/retrieve-memories`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+          ...(anonKey ? { apikey: anonKey } : {}),
+        },
+        body: JSON.stringify({
+          userMessage: prompt,
+          maxMemories: 8,
+          cooldownHours: 12,
+          useSemanticSearch: true,
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.error || `Debug retrieval failed (${res.status})`);
+      }
+      setDebugData(json);
+    } catch (error: any) {
+      console.error("Debug retrieval error:", error);
+      setMessage("❌ " + error.message);
+      setTimeout(() => setMessage(""), 3500);
+    } finally {
+      setDebugLoading(false);
+    }
+  };
+
+  const toggleMemoryActive = async (memoryId: string, nextActive: boolean) => {
+    if (!profile) return;
+    try {
+      const { error } = await supabase
+        .from("memories")
+        .update({ is_active: nextActive })
+        .eq("id", memoryId)
+        .eq("user_id", profile.id);
+      if (error) throw error;
+
+      setMemoryRows((prev) =>
+        prev.map((row) => (row.id === memoryId ? { ...row, is_active: nextActive } : row))
+      );
+      await loadMemoryStats(profile.id);
+    } catch (error) {
+      console.error("Error toggling memory status:", error);
+    }
+  };
+
+  const deleteMemoryRow = async (memoryId: string) => {
+    if (!profile) return;
+    try {
+      const { error } = await supabase
+        .from("memories")
+        .delete()
+        .eq("id", memoryId)
+        .eq("user_id", profile.id);
+      if (error) throw error;
+
+      setMemoryRows((prev) => prev.filter((row) => row.id !== memoryId));
+      await loadMemoryStats(profile.id);
+    } catch (error) {
+      console.error("Error deleting memory row:", error);
     }
   };
 
@@ -348,7 +636,7 @@ export const SettingsPage = () => {
                 <div className="space-y-6">
                   <div>
                     <h2 className="text-xl font-bold text-white mb-2">Memory System</h2>
-                    <p className="text-white/60">Kiara remembers important information about you across conversations</p>
+                    <p className="text-white/60">Control memory profile, contradictions, and retrieval quality.</p>
                   </div>
 
                   <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
@@ -364,24 +652,169 @@ export const SettingsPage = () => {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="p-4 bg-white/5 rounded-lg border border-white/10">
-                      <div className="text-2xl font-bold text-white mb-1">Coming Soon</div>
+                      <div className="text-2xl font-bold text-white mb-1">{memoryStats.total}</div>
                       <div className="text-sm text-white/60">Total Memories</div>
                     </div>
                     <div className="p-4 bg-white/5 rounded-lg border border-white/10">
-                      <div className="text-2xl font-bold text-white mb-1">Active</div>
-                      <div className="text-sm text-white/60">Memory System Status</div>
+                      <div className="text-2xl font-bold text-white mb-1">{memoryStats.active}</div>
+                      <div className="text-sm text-white/60">Active Memories</div>
                     </div>
                   </div>
 
-                  <a
-                    href="/memories"
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 text-white font-medium rounded-lg transition-all border border-white/10"
-                  >
-                    <span>Manage Memories</span>
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </a>
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-white">Memory Profile Editor</h3>
+                    <p className="text-sm text-white/60">
+                      One line per item. These are injected as high-priority user profile signals.
+                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs uppercase tracking-wider text-white/50 mb-2">Likes</label>
+                        <textarea
+                          value={memoryEditor.likes}
+                          onChange={(e) => setMemoryEditor((prev) => ({ ...prev, likes: e.target.value }))}
+                          className="w-full h-24 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-purple-500/50"
+                          placeholder={"short answers\nconcrete steps\nclean UI"}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs uppercase tracking-wider text-white/50 mb-2">Dislikes</label>
+                        <textarea
+                          value={memoryEditor.dislikes}
+                          onChange={(e) => setMemoryEditor((prev) => ({ ...prev, dislikes: e.target.value }))}
+                          className="w-full h-24 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-purple-500/50"
+                          placeholder={"long delays\ngeneric filler\nlow-detail outputs"}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs uppercase tracking-wider text-white/50 mb-2">Goals</label>
+                        <textarea
+                          value={memoryEditor.goals}
+                          onChange={(e) => setMemoryEditor((prev) => ({ ...prev, goals: e.target.value }))}
+                          className="w-full h-24 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-purple-500/50"
+                          placeholder={"faster page switching\npremium UX"}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs uppercase tracking-wider text-white/50 mb-2">Capabilities</label>
+                        <textarea
+                          value={memoryEditor.capabilities}
+                          onChange={(e) => setMemoryEditor((prev) => ({ ...prev, capabilities: e.target.value }))}
+                          className="w-full h-24 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-purple-500/50"
+                          placeholder={"React\nTypeScript\nSupabase"}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs uppercase tracking-wider text-white/50 mb-2">Tone Preferences</label>
+                      <textarea
+                        value={memoryEditor.tone}
+                        onChange={(e) => setMemoryEditor((prev) => ({ ...prev, tone: e.target.value }))}
+                        className="w-full h-24 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-purple-500/50"
+                        placeholder={"direct and pragmatic\nno fluff\nhigh technical precision"}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={handleSaveMemoryProfile}
+                      disabled={saving}
+                      className="px-5 py-2.5 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 disabled:opacity-60 text-white font-medium rounded-lg transition-all"
+                    >
+                      {saving ? "Saving..." : "Save Memory Profile"}
+                    </button>
+                    <button
+                      onClick={handleClearAllMemories}
+                      disabled={saving}
+                      className="px-5 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 disabled:opacity-60 text-red-200 font-medium rounded-lg transition-all"
+                    >
+                      Clear All Memories
+                    </button>
+                  </div>
+
+                  <div className="pt-2 border-t border-white/10 space-y-3">
+                    <h3 className="text-lg font-semibold text-white">Stored Memory Entries</h3>
+                    <p className="text-sm text-white/60">Quick control over active/inactive memory rows used in retrieval.</p>
+
+                    {memoryRowsLoading ? (
+                      <div className="text-sm text-white/50">Loading memories...</div>
+                    ) : memoryRows.length === 0 ? (
+                      <div className="text-sm text-white/50">No memory rows yet. Start chatting and extraction will populate this.</div>
+                    ) : (
+                      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                        {memoryRows.map((row) => (
+                          <div key={row.id} className="p-3 rounded-lg border border-white/10 bg-white/[0.03]">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-sm text-white/85 break-words">{row.content}</div>
+                                <div className="text-[11px] text-white/45 mt-1 uppercase tracking-[0.1em]">
+                                  {(row.category || row.memory_type || "general")} | imp {Number(row.importance ?? 0).toFixed(2)} | {row.is_active ? "active" : "inactive"}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <button
+                                  onClick={() => toggleMemoryActive(row.id, !row.is_active)}
+                                  className="px-2.5 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors"
+                                >
+                                  {row.is_active ? "Deactivate" : "Activate"}
+                                </button>
+                                <button
+                                  onClick={() => deleteMemoryRow(row.id)}
+                                  className="px-2.5 py-1.5 text-xs rounded-md bg-red-500/10 hover:bg-red-500/20 text-red-200 border border-red-500/30 transition-colors"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-2 border-t border-white/10 space-y-3">
+                    <h3 className="text-lg font-semibold text-white">Retrieval Debug Panel</h3>
+                    <p className="text-sm text-white/60">Test what memories are retrieved and why for a given prompt.</p>
+                    <div className="flex gap-2">
+                      <input
+                        value={debugPrompt}
+                        onChange={(e) => setDebugPrompt(e.target.value)}
+                        className="flex-1 px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-purple-500/50"
+                        placeholder="Type a sample prompt for retrieval analysis..."
+                      />
+                      <button
+                        onClick={runRetrievalDebug}
+                        disabled={debugLoading || !debugPrompt.trim()}
+                        className="px-4 py-2.5 bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white rounded-lg transition-all"
+                      >
+                        {debugLoading ? "Running..." : "Run"}
+                      </button>
+                    </div>
+
+                    {debugData && (
+                      <div className="rounded-lg border border-white/10 bg-black/40 p-3 space-y-2">
+                        <div className="text-xs uppercase tracking-widest text-white/50">
+                          Strategy: {debugData.search_strategy || "none"} • Count: {debugData.count || 0}
+                        </div>
+                        {(debugData.memories || []).length === 0 ? (
+                          <div className="text-sm text-white/55">No memories selected for this prompt.</div>
+                        ) : (
+                          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                            {(debugData.memories || []).map((item: any, index: number) => (
+                              <div key={`${item.id || index}-${index}`} className="p-2 rounded-md border border-white/10 bg-white/[0.03]">
+                                <div className="text-sm text-white/85">{item.content}</div>
+                                <div className="text-[11px] text-white/50 mt-1 uppercase tracking-[0.1em]">
+                                  {(item.category || item.type || "general")} • conf {Number(item.confidence ?? item.importance ?? 0).toFixed(2)} • {item.reason || "selected"}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

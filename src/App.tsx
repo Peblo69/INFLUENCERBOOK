@@ -202,6 +202,14 @@ const AppRoutes = () => {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/influencers"
+          element={
+            <ProtectedRoute>
+              <InfluencersPage />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Secondary pages - lazy loaded */}
         <Route
@@ -266,6 +274,16 @@ const AppRoutes = () => {
         />
         <Route
           path="/settings"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<RouteLoading />}>
+                <LazySettings />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/memories"
           element={
             <ProtectedRoute>
               <Suspense fallback={<RouteLoading />}>

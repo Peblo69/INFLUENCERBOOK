@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, memo } from "react";
+import { useState, useRef, useEffect, memo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { ModelsSidebar } from "./components/ModelsSidebar";
 import { useNotifications } from "@/components/Notification";
 import { useI18n } from "@/contexts/I18nContext";
@@ -21,7 +22,6 @@ import {
   MessageSquare,
   Download,
   X,
-  Settings,
   Mic,
   Globe,
   Layers,
@@ -32,85 +32,11 @@ import {
   RotateCcw,
   Copy,
   Trash2,
+  Ratio,
+  Hash,
+  Sparkles,
 } from "lucide-react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
-
-// Custom Icons for Settings Panel
-const SlidersIcon = ({ className = "" }: { className?: string }) => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M4 21v-7" />
-    <path d="M4 10V3" />
-    <path d="M12 21v-9" />
-    <path d="M12 8V3" />
-    <path d="M20 21v-5" />
-    <path d="M20 12V3" />
-    <path d="M1 14h6" />
-    <path d="M9 8h6" />
-    <path d="M17 16h6" />
-  </svg>
-);
-
-const AspectRatioIcon = ({ className = "" }: { className?: string }) => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <rect x="2" y="4" width="20" height="16" rx="2" />
-    <path d="M12 4v16" />
-  </svg>
-);
-
-const ResolutionIcon = ({ className = "" }: { className?: string }) => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <rect x="3" y="3" width="18" height="18" rx="2" />
-    <path d="M9 3v18" />
-    <path d="M15 3v18" />
-    <path d="M3 9h18" />
-    <path d="M3 15h18" />
-  </svg>
-);
-
-const ImagesIcon = ({ className = "" }: { className?: string }) => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <rect x="3" y="3" width="18" height="18" rx="2" />
-    <circle cx="8.5" cy="8.5" r="1.5" />
-    <path d="M21 15l-5-5L5 21" />
-  </svg>
-);
-
-const SeedIcon = ({ className = "" }: { className?: string }) => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M12 2v20" />
-    <path d="M2 12h20" />
-    <circle cx="12" cy="12" r="10" />
-  </svg>
-);
-
-const HashIcon = ({ className = "" }: { className?: string }) => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <line x1="4" y1="9" x2="20" y2="9" />
-    <line x1="4" y1="15" x2="20" y2="15" />
-    <line x1="10" y1="3" x2="8" y2="21" />
-    <line x1="16" y1="3" x2="14" y2="21" />
-  </svg>
-);
-
-const SparklesIcon = ({ className = "" }: { className?: string }) => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-  </svg>
-);
-
-const UploadIcon = ({ className = "" }: { className?: string }) => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <polyline points="17 8 12 3 7 8" />
-    <line x1="12" y1="3" x2="12" y2="15" />
-  </svg>
-);
-
-const ChevronDownIcon = ({ className = "" }: { className?: string }) => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <polyline points="6 9 12 15 18 9" />
-  </svg>
-);
 
 // Aspect Ratio Icons
 const Square1x1Icon = () => (
@@ -145,18 +71,7 @@ const Tall3x4Icon = () => (
 
 type TabType = "generations" | "images";
 
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: string;
-  images?: string[];
-}
-
-interface VisionAIImage {
-  file: File;
-  preview: string;
-}
+const IMAGES_PER_PAGE = 35;
 
 interface GeneratedImage {
   id: string;
@@ -164,8 +79,6 @@ interface GeneratedImage {
   prompt: string;
   createdAt: string;
   model?: string;
-  aspectRatio?: string;
-  resolution?: string;
 }
 
 interface LightboxImage {
@@ -176,15 +89,26 @@ interface LightboxImage {
   aspectRatio?: string;
   resolution?: string;
   createdAt?: string;
-  isSession?: boolean; // true = session image, false = DB image
+  isSession?: boolean;
 }
 
-// ============================================================================
-// INPUT CAPSULE (extracted outside ModelsPage to prevent remount on every keystroke)
-// ============================================================================
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  images?: string[];
+  streaming?: boolean;
+}
+
+interface VisionAIImage {
+  file: File;
+  preview: string;
+  base64: string;
+}
+
 interface GenerationSettingsState {
   numberOfImages: number;
-  seed: string; // "" = random, otherwise numeric string
+  seed: string;
 }
 
 interface InputCapsuleProps {
@@ -198,8 +122,6 @@ interface InputCapsuleProps {
   handleSend: (overrideText?: string) => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
-  showSettings: boolean;
-  setShowSettings: (v: boolean) => void;
   selectedModel: string;
   setSelectedModel: (v: string) => void;
   showModelMenu: boolean;
@@ -211,7 +133,6 @@ interface InputCapsuleProps {
   generationSettings: GenerationSettingsState;
   setGenerationSettings: React.Dispatch<React.SetStateAction<GenerationSettingsState>>;
   t: (key: string, vars?: Record<string, any>) => string;
-  // LoRA
   userLoRAs: LoRAModel[];
   selectedLoRA: string | null;
   setSelectedLoRA: (v: string | null) => void;
@@ -221,6 +142,51 @@ interface InputCapsuleProps {
   uploadProgress: number | null;
   loraFileInputRef: React.RefObject<HTMLInputElement | null>;
 }
+
+// Simple popup component
+const SettingPopup = ({ 
+  isOpen, 
+  onClose, 
+  children, 
+  triggerRef 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  children: React.ReactNode;
+  triggerRef: React.RefObject<HTMLElement | null>;
+}) => {
+  const popupRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        const trigger = triggerRef.current;
+        if (trigger && !trigger.contains(e.target as Node)) {
+          onClose();
+        }
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen, onClose, triggerRef]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div 
+      ref={popupRef}
+      className="absolute bottom-full mb-2 right-0 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200"
+    >
+      <div className="relative rounded-[16px] overflow-hidden bg-gradient-to-b from-white/[0.08] to-white/[0.02] backdrop-blur-2xl border border-white/[0.08] shadow-2xl">
+        <div className="absolute inset-0 bg-black/60" />
+        <div className="relative p-3">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const InputCapsule: React.FC<InputCapsuleProps> = ({
   isBottom = false,
@@ -233,8 +199,6 @@ const InputCapsule: React.FC<InputCapsuleProps> = ({
   handleSend,
   fileInputRef,
   textareaRef,
-  showSettings,
-  setShowSettings,
   selectedModel,
   setSelectedModel,
   showModelMenu,
@@ -256,241 +220,284 @@ const InputCapsule: React.FC<InputCapsuleProps> = ({
   loraFileInputRef,
 }) => {
   const canSend = (chatInput.trim().length > 0 || visionAIImages.length > 0) && !isAiResponding && !isGenerating;
+  
+  // Popup states
+  const [ratioOpen, setRatioOpen] = useState(false);
+  const [qualityOpen, setQualityOpen] = useState(false);
+  const [countOpen, setCountOpen] = useState(false);
+  const [seedOpen, setSeedOpen] = useState(false);
+  const [loraOpen, setLoraOpen] = useState(false);
+  
+  // Refs for positioning
+  const ratioRef = useRef<HTMLButtonElement>(null);
+  const qualityRef = useRef<HTMLButtonElement>(null);
+  const countRef = useRef<HTMLButtonElement>(null);
+  const seedRef = useRef<HTMLButtonElement>(null);
+  const loraRef = useRef<HTMLButtonElement>(null);
+  
+  // Close all popups helper
+  const closeAll = useCallback(() => {
+    setRatioOpen(false);
+    setQualityOpen(false);
+    setCountOpen(false);
+    setSeedOpen(false);
+    setLoraOpen(false);
+  }, []);
 
   return (
-    <div className={`relative rounded-[24px] overflow-hidden transition-all duration-300 ${isBottom ? 'w-full max-w-3xl' : ''}`}>
-      {/* Multi-layer glass background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-white/[0.05] to-white/[0.02]" />
-      <div className="absolute inset-0 backdrop-blur-xl" />
-      <div className="absolute inset-0 bg-black/50" />
-      <div className="absolute inset-0 rounded-[24px] border border-white/[0.06]" />
-      <div className="absolute inset-0 rounded-[24px] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]" />
+    <div className={`relative rounded-[20px] overflow-hidden transition-all duration-300 group ${isBottom ? 'w-full max-w-3xl' : ''}`}>
+      {/* Animated gradient border glow */}
+      <div className="absolute -inset-[1px] rounded-[20px] bg-gradient-to-r from-purple-500/20 via-pink-500/20 via-blue-500/20 to-purple-500/20 opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-sm" />
       
-      <div className={`relative ${isBottom ? 'p-1.5' : 'p-1.5'}`}>
+      {/* Multi-layer glass background */}
+      <div className="absolute inset-0 bg-gradient-to-b from-white/[0.08] to-white/[0.02]" />
+      <div className="absolute inset-0 backdrop-blur-xl" />
+      <div className="absolute inset-0 bg-black/40" />
+      <div className="absolute inset-0 rounded-[20px] border border-white/[0.08] group-focus-within:border-white/[0.15] transition-colors duration-300" />
+      <div className="absolute inset-0 rounded-[20px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.05),inset_0_-1px_1px_rgba(0,0,0,0.2)]" />
+      
+      <div className="relative p-1">
+        {visionAIImages.length > 0 && (
+          <div className="flex gap-2 px-3 pt-2 pb-1 overflow-x-auto scrollbar-hide">
+            {visionAIImages.map((img, i) => (
+              <div key={i} className="relative w-12 h-12 rounded-xl overflow-hidden border border-white/[0.1] flex-shrink-0 group/att ring-1 ring-white/5 backdrop-blur-sm">
+                <img src={img.preview} className="w-full h-full object-cover opacity-90 group-hover/att:opacity-100 transition-all" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60" />
+                <button onClick={() => setVisionAIImages(p => p.filter((_, x) => x !== i))} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 backdrop-blur-md border border-white/20 flex items-center justify-center opacity-0 group-hover/att:opacity-100 transition-all hover:bg-red-500/80 hover:border-red-400/50">
+                  <X size={10} className="text-white" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
-    {visionAIImages.length > 0 && (
-      <div className="flex gap-1.5 px-2.5 pt-1.5 pb-1 overflow-x-auto scrollbar-hide">
-        {visionAIImages.map((img, i) => (
-          <div key={i} className="relative w-10 h-10 rounded-lg overflow-hidden border border-white/[0.06] flex-shrink-0 group">
-            <img src={img.preview} className="w-full h-full object-cover" />
-            <button onClick={() => setVisionAIImages(p => p.filter((_, x) => x !== i))} className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
-              <X size={10} className="text-white/70" />
+        <textarea
+          ref={textareaRef}
+          value={chatInput}
+          onChange={(e) => setChatInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSend) handleSend(); } }}
+          placeholder={isBottom ? t("Enter prompt...") : t("Message Kiara...")}
+          className={`w-full bg-transparent text-[14px] px-4 py-3 outline-none resize-none placeholder:text-white/30 placeholder:font-light text-white/90 max-h-[120px] chat-text leading-relaxed ${isBottom ? 'min-h-[44px]' : 'min-h-[40px]'}`}
+          rows={1}
+        />
+
+        {/* Toolbar with Setting Popups */}
+        <div className="flex items-center justify-between px-2 pb-2">
+          {/* Left Tools */}
+          <div className="flex items-center gap-1">
+            <button className="group/btn relative">
+              <div className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 text-white/40 hover:text-white/70 hover:bg-white/[0.05]">
+                <Plus size={17} strokeWidth={1.5} />
+              </div>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black/80 backdrop-blur-md border border-white/10 rounded-lg text-[10px] text-white/70 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
+                Tools
+              </div>
+            </button>
+            
+            <button onClick={() => fileInputRef.current?.click()} className="group/btn relative">
+              <div className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 text-white/40 hover:text-white/70 hover:bg-white/[0.05]">
+                <Paperclip size={17} strokeWidth={1.5} />
+              </div>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black/80 backdrop-blur-md border border-white/10 rounded-lg text-[10px] text-white/70 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
+                Attach
+              </div>
+            </button>
+            
+            <button className="group/btn relative">
+              <div className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 text-white/40 hover:text-white/70 hover:bg-white/[0.05]">
+                <Mic size={17} strokeWidth={1.5} />
+              </div>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black/80 backdrop-blur-md border border-white/10 rounded-lg text-[10px] text-white/70 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
+                Voice
+              </div>
+            </button>
+            
+            <button className="group/btn relative">
+              <div className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 text-white/40 hover:text-white/70 hover:bg-white/[0.05]">
+                <Globe size={17} strokeWidth={1.5} />
+              </div>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black/80 backdrop-blur-md border border-white/10 rounded-lg text-[10px] text-white/70 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
+                Web
+              </div>
             </button>
           </div>
-        ))}
-      </div>
-    )}
 
-    <textarea
-      ref={textareaRef}
-      value={chatInput}
-      onChange={(e) => setChatInput(e.target.value)}
-      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSend) handleSend(); } }}
-      placeholder={isBottom ? t("Enter prompt...") : t("Message Kiara...")}
-      className={`w-full bg-transparent text-[13px] px-2.5 py-2 outline-none resize-none placeholder:text-white/25 text-white/85 max-h-[100px] chat-text leading-relaxed ${isBottom ? 'min-h-[40px]' : 'min-h-[36px]'}`}
-      rows={1}
-    />
-
-    {isBottom && (
-      <div
-        aria-hidden={!showSettings}
-        className={`overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-          showSettings
-            ? "max-h-[380px] opacity-100 translate-y-0 mt-1.5"
-            : "max-h-0 opacity-0 -translate-y-2 pointer-events-none"
-        }`}
-      >
-        {/* Compact Premium Settings Panel */}
-        <div className="relative mb-1.5 rounded-xl overflow-hidden">
-          {/* Multi-layer glass background */}
-          <div className="absolute inset-0 bg-gradient-to-b from-white/[0.06] to-white/[0.02]" />
-          <div className="absolute inset-0 backdrop-blur-xl" />
-          <div className="absolute inset-0 bg-black/50" />
-          <div className="absolute inset-0 rounded-xl border border-white/[0.06]" />
-          
-          {/* Content */}
-          <div className="relative p-3">
-            {/* Compact Header */}
-            <div className="flex items-center justify-between mb-2 pb-2 border-b border-white/[0.05]">
-              <div className="flex items-center gap-1.5">
-                <SlidersIcon className="text-white/50 w-3 h-3" />
-                <span className="text-[10px] font-medium text-white/70">{t("Settings")}</span>
-              </div>
+          {/* Right Actions - Settings Popups */}
+          <div className="flex items-center gap-1.5">
+            {/* Ratio Popup */}
+            <div className="relative">
               <button
-                type="button"
-                onClick={() => setShowSettings(false)}
-                className="w-5 h-5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/60 transition-all"
+                ref={ratioRef}
+                onClick={() => { closeAll(); setRatioOpen(!ratioOpen); }}
+                className={`relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${ratioOpen ? 'text-white bg-white/[0.08] border border-white/[0.12]' : 'text-white/40 hover:text-white/70 hover:bg-white/[0.05]'}`}
               >
-                <X size={10} />
+                <Ratio size={15} strokeWidth={1.5} />
+                <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-white/[0.08] text-[6px] flex items-center justify-center text-white/50 font-medium">{imageRatio.split(':')[0]}</span>
               </button>
-            </div>
-
-            <div className="max-h-[300px] overflow-y-auto scrollbar-hide space-y-2.5">
-              {/* Aspect Ratio - Compact */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/40">{t("Ratio")}</label>
-                </div>
-                <div className="flex gap-1">
-                  {[
-                    { id: "1:1", icon: <Square1x1Icon /> },
-                    { id: "16:9", icon: <Wide16x9Icon /> },
-                    { id: "9:16", icon: <Tall9x16Icon /> },
-                    { id: "4:3", icon: <Wide4x3Icon /> },
-                    { id: "3:4", icon: <Tall3x4Icon /> },
-                  ].map((r) => (
-                    <button
-                      key={r.id}
-                      onClick={() => setImageRatio(r.id)}
-                      className={`flex-1 h-7 rounded-lg flex items-center justify-center transition-all duration-150 ${
-                        imageRatio === r.id
-                          ? "bg-white/[0.1] border border-white/[0.15] text-white/90"
-                          : "bg-white/[0.02] border border-white/[0.04] text-white/30 hover:bg-white/[0.05] hover:text-white/50"
-                      }`}
-                    >
-                      <span className="scale-75">{r.icon}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Resolution & Count - Compact Row */}
-              <div className="flex gap-2">
-                {/* Resolution */}
-                <div className="flex-1">
-                  <label className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/40 mb-1 block">{t("Res")}</label>
-                  <div className="flex gap-1">
-                    {[
-                      { id: "1k", label: "1K" },
-                      { id: "2k", label: "2K" },
-                    ].map((r) => (
+              <SettingPopup isOpen={ratioOpen} onClose={() => setRatioOpen(false)} triggerRef={ratioRef}>
+                <div className="w-[160px]">
+                  <p className="text-[9px] uppercase tracking-[0.14em] text-white/30 mb-2">Aspect Ratio</p>
+                  <div className="grid grid-cols-3 gap-1">
+                    {["1:1", "16:9", "9:16", "4:3", "3:4"].map((r) => (
                       <button
-                        key={r.id}
-                        onClick={() => setImageResolution(r.id)}
-                        className={`flex-1 h-6 rounded-md text-[10px] font-medium transition-all duration-150 ${
-                          imageResolution === r.id
-                            ? "bg-white/[0.1] border border-white/[0.15] text-white/90"
-                            : "bg-white/[0.02] border border-white/[0.04] text-white/30 hover:bg-white/[0.05]"
+                        key={r}
+                        onClick={() => { setImageRatio(r); setRatioOpen(false); }}
+                        className={`py-1.5 rounded-lg text-[10px] font-medium transition-all border ${
+                          imageRatio === r
+                            ? "bg-white/[0.12] text-white border-white/[0.15]"
+                            : "text-white/40 border-white/[0.04] hover:text-white/70 hover:bg-white/[0.05]"
                         }`}
                       >
-                        {r.label}
+                        {r}
                       </button>
                     ))}
                   </div>
                 </div>
+              </SettingPopup>
+            </div>
 
-                {/* Count */}
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/40">{t("Count")}</label>
-                    <span className="text-[9px] font-semibold text-white/60">{generationSettings.numberOfImages}</span>
+            {/* Quality Popup */}
+            <div className="relative">
+              <button
+                ref={qualityRef}
+                onClick={() => { closeAll(); setQualityOpen(!qualityOpen); }}
+                className={`relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${qualityOpen ? 'text-white bg-white/[0.08] border border-white/[0.12]' : 'text-white/40 hover:text-white/70 hover:bg-white/[0.05]'}`}
+              >
+                <span className="text-[9px] font-semibold">{imageResolution.toUpperCase()}</span>
+              </button>
+              <SettingPopup isOpen={qualityOpen} onClose={() => setQualityOpen(false)} triggerRef={qualityRef}>
+                <div className="w-[100px]">
+                  <p className="text-[9px] uppercase tracking-[0.14em] text-white/30 mb-2">Quality</p>
+                  <div className="flex gap-1">
+                    {["1k", "2k"].map((res) => (
+                      <button
+                        key={res}
+                        onClick={() => { setImageResolution(res); setQualityOpen(false); }}
+                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-all border ${
+                          imageResolution === res
+                            ? "bg-white/[0.12] text-white border-white/[0.15]"
+                            : "text-white/40 border-white/[0.04] hover:text-white/70 hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        {res.toUpperCase()}
+                      </button>
+                    ))}
                   </div>
-                  <div className="h-6 px-2 rounded-md bg-white/[0.02] border border-white/[0.04] flex items-center">
+                </div>
+              </SettingPopup>
+            </div>
+
+            {/* Count Popup */}
+            <div className="relative">
+              <button
+                ref={countRef}
+                onClick={() => { closeAll(); setCountOpen(!countOpen); }}
+                className={`relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${countOpen ? 'text-white bg-white/[0.08] border border-white/[0.12]' : 'text-white/40 hover:text-white/70 hover:bg-white/[0.05]'}`}
+              >
+                <span className="text-[9px] font-semibold">{generationSettings.numberOfImages}</span>
+              </button>
+              <SettingPopup isOpen={countOpen} onClose={() => setCountOpen(false)} triggerRef={countRef}>
+                <div className="w-[120px]">
+                  <p className="text-[9px] uppercase tracking-[0.14em] text-white/30 mb-2">Images</p>
+                  <div className="flex items-center gap-2">
                     <input
                       type="range"
                       min="1"
                       max="4"
                       value={generationSettings.numberOfImages}
-                      onChange={(e) =>
-                        setGenerationSettings((prev) => ({
-                          ...prev,
-                          numberOfImages: parseInt(e.target.value, 10),
-                        }))
-                      }
-                      className="flex-1 h-0.5 bg-white/10 rounded-full appearance-none cursor-pointer"
+                      onChange={(e) => setGenerationSettings(p => ({ ...p, numberOfImages: parseInt(e.target.value) }))}
+                      className="flex-1 h-1 bg-white/10 rounded-full appearance-none cursor-pointer"
                       style={{
-                        background: `linear-gradient(to right, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.35) ${(generationSettings.numberOfImages - 1) / 3 * 100}%, rgba(255,255,255,0.08) ${(generationSettings.numberOfImages - 1) / 3 * 100}%, rgba(255,255,255,0.08) 100%)`
+                        background: `linear-gradient(to right, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.3) ${(generationSettings.numberOfImages - 1) / 3 * 100}%, rgba(255,255,255,0.06) ${(generationSettings.numberOfImages - 1) / 3 * 100}%, rgba(255,255,255,0.06) 100%)`
                       }}
                     />
+                    <span className="text-[11px] font-medium text-white/70 w-4 text-center">{generationSettings.numberOfImages}</span>
                   </div>
                 </div>
-              </div>
+              </SettingPopup>
+            </div>
 
-              {/* Seed - Compact */}
-              <div>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <HashIcon className="text-white/30 w-3 h-3" />
-                  <label className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/40">{t("Seed")}</label>
-                  <span className="text-[8px] text-white/20 ml-auto">{t("Optional")}</span>
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder={t("Random")}
-                    value={generationSettings.seed}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/[^0-9]/g, "");
-                      setGenerationSettings((prev) => ({ ...prev, seed: val }));
-                    }}
-                    className="w-full h-7 rounded-lg bg-white/[0.02] border border-white/[0.05] px-2 pl-7 font-mono text-[11px] text-white/60 placeholder:text-white/20 outline-none transition-all focus:border-white/[0.1]"
-                  />
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-white/20 text-[10px]">#</span>
-                  {generationSettings.seed && (
-                    <button
-                      onClick={() => setGenerationSettings((prev) => ({ ...prev, seed: "" }))}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/50 transition-colors"
-                    >
-                      <X size={10} />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* LoRA - Compact */}
-              <div className="pt-2 border-t border-white/[0.05]">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <SparklesIcon className="text-white/40 w-3 h-3" />
-                    <span className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/40">{t("LoRA")}</span>
-                  </div>
-                  <button
-                    onClick={() => loraFileInputRef.current?.click()}
-                    disabled={isUploadingLoRA}
-                    className="text-[9px] font-medium text-white/50 hover:text-white/70 transition-colors disabled:opacity-50"
-                  >
-                    {isUploadingLoRA ? `${uploadProgress ?? 0}%` : t("+ Upload")}
-                  </button>
-                </div>
-
-                {isUploadingLoRA && (
-                  <div className="mb-1.5 h-1 w-full overflow-hidden rounded-full bg-white/[0.03]">
-                    <div
-                      className="h-full rounded-full bg-white/30 transition-all duration-300"
-                      style={{ width: `${uploadProgress ?? 0}%` }}
-                    />
-                  </div>
-                )}
-
-                <div className="space-y-1.5">
-                  {/* LoRA Select */}
+            {/* Seed Popup */}
+            <div className="relative">
+              <button
+                ref={seedRef}
+                onClick={() => { closeAll(); setSeedOpen(!seedOpen); }}
+                className={`relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${seedOpen || generationSettings.seed ? 'text-white bg-white/[0.08] border border-white/[0.12]' : 'text-white/40 hover:text-white/70 hover:bg-white/[0.05]'}`}
+              >
+                <Hash size={15} strokeWidth={1.5} />
+                {generationSettings.seed && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-500/80" />}
+              </button>
+              <SettingPopup isOpen={seedOpen} onClose={() => setSeedOpen(false)} triggerRef={seedRef}>
+                <div className="w-[140px]">
+                  <p className="text-[9px] uppercase tracking-[0.14em] text-white/30 mb-2">Seed</p>
                   <div className="relative">
-                    <select
-                      value={selectedLoRA || ""}
-                      onChange={(e) => {
-                        const id = e.target.value || null;
-                        setSelectedLoRA(id);
-                        if (id) {
-                          const lora = userLoRAs.find((l) => l.id === id);
-                          if (lora) setLoraStrength(lora.default_strength);
-                        }
-                      }}
-                      className="w-full h-7 rounded-lg bg-white/[0.02] border border-white/[0.05] px-2 pr-7 appearance-none text-[11px] text-white/60 outline-none transition-all focus:border-white/[0.1] cursor-pointer"
-                    >
-                      <option value="">{t("None")}</option>
-                      {userLoRAs.map((lora) => (
-                        <option key={lora.id} value={lora.id}>
-                          {lora.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDownIcon className="absolute right-2 top-1/2 -translate-y-1/2 text-white/25 w-3 h-3 pointer-events-none" />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Random"
+                      value={generationSettings.seed}
+                      onChange={(e) => setGenerationSettings(p => ({ ...p, seed: e.target.value.replace(/[^0-9]/g, "") }))}
+                      className="w-full h-8 rounded-lg bg-black/50 border border-white/[0.08] px-2.5 text-[11px] text-white/70 placeholder:text-white/20 outline-none focus:border-white/[0.15]"
+                    />
+                    {generationSettings.seed && (
+                      <button
+                        onClick={() => setGenerationSettings(p => ({ ...p, seed: "" }))}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60"
+                      >
+                        <X size={10} />
+                      </button>
+                    )}
                   </div>
+                </div>
+              </SettingPopup>
+            </div>
 
-                  {/* Strength Slider - Compact */}
+            {/* LoRA Popup */}
+            <div className="relative">
+              <button
+                ref={loraRef}
+                onClick={() => { closeAll(); setLoraOpen(!loraOpen); }}
+                className={`relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${loraOpen || selectedLoRA ? 'text-white bg-white/[0.08] border border-white/[0.12]' : 'text-white/40 hover:text-white/70 hover:bg-white/[0.05]'}`}
+              >
+                <Sparkles size={15} strokeWidth={1.5} />
+                {selectedLoRA && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-500/80" />}
+              </button>
+              <SettingPopup isOpen={loraOpen} onClose={() => setLoraOpen(false)} triggerRef={loraRef}>
+                <div className="w-[180px]">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[9px] uppercase tracking-[0.14em] text-white/30">LoRA</p>
+                    <button
+                      onClick={() => loraFileInputRef.current?.click()}
+                      disabled={isUploadingLoRA}
+                      className="text-[9px] text-white/40 hover:text-white/70 transition-colors"
+                    >
+                      {isUploadingLoRA ? `${uploadProgress}%` : "+"}
+                    </button>
+                  </div>
+                  {isUploadingLoRA && (
+                    <div className="h-0.5 w-full rounded-full bg-white/[0.05] mb-2">
+                      <div className="h-full rounded-full bg-white/30 transition-all" style={{ width: `${uploadProgress}%` }} />
+                    </div>
+                  )}
+                  <select
+                    value={selectedLoRA || ""}
+                    onChange={(e) => {
+                      const id = e.target.value || null;
+                      setSelectedLoRA(id);
+                      if (id) {
+                        const lora = userLoRAs.find((l) => l.id === id);
+                        if (lora) setLoraStrength(lora.default_strength);
+                      }
+                    }}
+                    className="w-full h-8 rounded-lg bg-black/50 border border-white/[0.08] px-2 text-[11px] text-white/70 outline-none focus:border-white/[0.15] cursor-pointer mb-2"
+                  >
+                    <option value="">None</option>
+                    {userLoRAs.map((lora) => (
+                      <option key={lora.id} value={lora.id}>{lora.name}</option>
+                    ))}
+                  </select>
                   {selectedLoRA && (
-                    <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/[0.02] border border-white/[0.04] animate-in slide-in-from-top-1 fade-in duration-200">
-                      <span className="text-[9px] text-white/30 w-8">{t("Str")}</span>
+                    <div className="flex items-center gap-2">
                       <input
                         type="range"
                         min="0"
@@ -498,139 +505,47 @@ const InputCapsule: React.FC<InputCapsuleProps> = ({
                         step="0.05"
                         value={loraStrength}
                         onChange={(e) => setLoraStrength(parseFloat(e.target.value))}
-                        className="flex-1 h-0.5 bg-white/10 rounded-full appearance-none cursor-pointer"
+                        className="flex-1 h-1 bg-white/10 rounded-full appearance-none cursor-pointer"
                         style={{
-                          background: `linear-gradient(to right, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.3) ${(loraStrength / 2) * 100}%, rgba(255,255,255,0.06) ${(loraStrength / 2) * 100}%, rgba(255,255,255,0.06) 100%)`
+                          background: `linear-gradient(to right, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0.25) ${(loraStrength / 2) * 100}%, rgba(255,255,255,0.06) ${(loraStrength / 2) * 100}%, rgba(255,255,255,0.06) 100%)`
                         }}
                       />
-                      <span className="text-[9px] font-medium text-white/50 w-8 text-right">{loraStrength.toFixed(2)}</span>
+                      <span className="text-[9px] text-white/50 w-8 text-right">{loraStrength.toFixed(2)}</span>
                     </div>
                   )}
                 </div>
-              </div>
+              </SettingPopup>
             </div>
+
+            <div className="w-px h-5 bg-white/[0.06] mx-1" />
+            
+            {/* Send Button */}
+            <button
+              onClick={() => handleSend()}
+              disabled={!canSend}
+              className="group/send relative disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <div className={`absolute inset-0 rounded-xl bg-white/20 blur-md transition-opacity duration-300 ${chatInput.trim() || visionAIImages.length > 0 ? 'opacity-0 group-hover/send:opacity-100' : 'opacity-0'}`} />
+              <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 border ${chatInput.trim() || visionAIImages.length > 0 ? 'bg-white/[0.08] border-white/20 text-white/90 group-hover/send:bg-white/[0.15] group-hover/send:border-white/30 group-hover/send:text-white group-hover/send:scale-105' : 'bg-transparent border-white/[0.06] text-white/20'}`}>
+                <ArrowUpRight size={18} strokeWidth={2} className="transition-transform duration-300 group-hover/send:-translate-y-0.5 group-hover/send:translate-x-0.5" />
+              </div>
+            </button>
           </div>
         </div>
       </div>
-    )}
-
-    <div className="px-1 pb-0.5 flex items-center justify-between">
-      <div className="flex items-center gap-0.5">
-        <button onClick={() => fileInputRef.current?.click()} className="w-7 h-7 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] flex items-center justify-center text-white/35 hover:text-white/60 transition-all">
-          <Paperclip size={13} strokeWidth={1.5} />
-        </button>
-        {isBottom && (
-          <>
-            <button className="w-7 h-7 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] flex items-center justify-center text-white/35 hover:text-white/60 transition-all">
-              <Mic size={13} strokeWidth={1.5} />
-            </button>
-            <button className="w-7 h-7 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] flex items-center justify-center text-white/35 hover:text-white/60 transition-all">
-              <Globe size={13} strokeWidth={1.5} />
-            </button>
-          </>
-        )}
-      </div>
-
-      <div className="flex items-center gap-1">
-        {isBottom && (
-          <>
-            {/* Active settings chips */}
-            <button
-              type="button"
-              onClick={() => {
-                setShowSettings(true);
-                setShowModelMenu(false);
-              }}
-              className="flex items-center gap-0.5 rounded-full p-0.5 transition-colors hover:bg-white/[0.02]"
-              title={t("Open settings")}
-            >
-              <span className={`px-2 py-0.5 rounded-full text-[9px] font-medium tracking-wide transition-all ${imageRatio !== "1:1" ? 'bg-white/[0.08] text-white/70 border border-white/[0.12]' : 'bg-white/[0.02] text-white/35 border border-white/[0.05]'}`}>
-                {imageRatio}
-              </span>
-              <span className={`px-2 py-0.5 rounded-full text-[9px] font-medium tracking-wide transition-all ${imageResolution !== "1k" ? 'bg-white/[0.08] text-white/70 border border-white/[0.12]' : 'bg-white/[0.02] text-white/35 border border-white/[0.05]'}`}>
-                {imageResolution === "1k" ? "1K" : "2K"}
-              </span>
-              {generationSettings.numberOfImages > 1 && (
-                <span className="px-2 py-0.5 rounded-full bg-white/[0.08] text-white/70 border border-white/[0.12] text-[9px] font-medium">
-                  ×{generationSettings.numberOfImages}
-                </span>
-              )}
-              {selectedLoRA && (
-                <span className="px-2 py-0.5 rounded-full bg-white/[0.08] text-white/70 border border-white/[0.12] text-[9px] font-medium">
-                  LoRA
-                </span>
-              )}
-            </button>
-
-            {/* Models Selector */}
-            <div className="relative">
-              <button
-                onClick={() => { setShowModelMenu(!showModelMenu); setShowSettings(false); }}
-                className="w-7 h-7 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] flex items-center justify-center text-white/35 hover:text-white/60 transition-all"
-                title={t("Models")}
-              >
-                <Layers size={13} strokeWidth={1.5} />
-              </button>
-              {showModelMenu && (
-                <div className="absolute bottom-full right-0 mb-1.5 w-48 bg-black/95 border border-white/[0.06] rounded-xl shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-200 overflow-hidden z-[100]">
-                  <div className="px-3 py-2 border-b border-white/[0.05]">
-                    <span className="text-[9px] font-medium text-white/35 uppercase tracking-[0.12em]">{t("Model")}</span>
-                  </div>
-                  {[
-                    { id: "kiara-z-max", name: "Kiara Z MAX", desc: "Premium" },
-                  ].map((model) => (
-                    <button
-                      key={model.id}
-                      onClick={() => { setSelectedModel(model.id); setShowModelMenu(false); }}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.03] transition-colors ${selectedModel === model.id ? 'bg-white/[0.04]' : ''}`}
-                    >
-                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${selectedModel === model.id ? 'border-white/25' : 'border-white/[0.08]'}`}>
-                        {selectedModel === model.id && <Check size={8} className="text-white/70" />}
-                      </div>
-                      <div>
-                        <p className="text-[12px] font-medium text-white/80">{model.name}</p>
-                        <p className="text-[9px] text-white/30">{model.desc}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Config Button */}
-            <button
-              onClick={() => { setShowSettings(!showSettings); setShowModelMenu(false); }}
-              className={`h-7 rounded-full px-2.5 text-[10px] font-medium tracking-wide flex items-center gap-1 transition-all active:scale-95 ${
-                showSettings
-                  ? "bg-white/[0.08] text-white/80 border border-white/[0.12]"
-                  : "bg-white/[0.02] text-white/40 hover:bg-white/[0.05] hover:text-white/60 border border-white/[0.05]"
-              }`}
-              title={t("Settings")}
-            >
-              <Settings size={12} strokeWidth={1.5} className={`transition-transform ${showSettings ? "rotate-90" : ""}`} />
-              <span className="hidden sm:inline">{t("Settings")}</span>
-              <ChevronDown size={11} strokeWidth={1.5} className={`transition-transform ${showSettings ? "rotate-180" : ""}`} />
-            </button>
-          </>
-        )}
-        <button
-          onClick={() => handleSend()}
-          disabled={!canSend}
-          className="w-7 h-7 rounded-full bg-white text-black flex items-center justify-center hover:bg-white/90 transition-all shadow-[0_0_15px_rgba(255,255,255,0.1)] disabled:opacity-30 disabled:cursor-not-allowed active:scale-95"
-        >
-          <ArrowUpRight size={15} strokeWidth={2.5} />
-        </button>
-      </div>
-    </div>
-    </div>
     </div>
   );
 };
 
-const IMAGES_PER_ROW = 5;
-const ROWS_PER_PAGE = 6;
-const IMAGES_PER_PAGE = IMAGES_PER_ROW * ROWS_PER_PAGE;
+// Grid density presets
+const GRID_CONFIGS = [
+  { cols: 5, perPage: 30, gap: "gap-2.5", radius: "rounded-2xl" },
+  { cols: 8, perPage: 48, gap: "gap-1.5", radius: "rounded-xl" },
+  { cols: 12, perPage: 60, gap: "gap-1", radius: "rounded-lg" },
+] as const;
 
+const GRID_STORAGE_KEY = "kiara-gallery-grid";
+const MODELS_GRID_KEY = "kiara-models-grid";
 
 const downloadImage = async (url: string, filename?: string) => {
   try {
@@ -950,7 +865,7 @@ export const ModelsPage = () => {
   const [lightboxImage, setLightboxImage] = useState<LightboxImage | null>(null);
 
   // Settings & Model Selection
-  const [showSettings, setShowSettings] = useState(false);
+
   const [selectedModel, setSelectedModel] = useState("kiara-z-max");
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [imageRatio, setImageRatio] = useState("1:1");
@@ -1310,8 +1225,7 @@ export const ModelsPage = () => {
     isGenerating,
     handleSend,
     fileInputRef,
-    showSettings,
-    setShowSettings,
+
     selectedModel,
     setSelectedModel,
     showModelMenu,
@@ -1352,7 +1266,7 @@ export const ModelsPage = () => {
       <style>{`
         /* ChatGPT-style font stack */
         .chat-text {
-          font-family: "Söhne", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", sans-serif;
+          font-family: "S+�hne", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", sans-serif;
         }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -1441,11 +1355,11 @@ export const ModelsPage = () => {
                           className="w-full h-full object-cover transition-all duration-700 group-hover:scale-[1.03]"
                           loading="lazy"
                         />
-                        {/* Model label — bottom left */}
+                        {/* Model label G�� bottom left */}
                         <div className="absolute bottom-0 left-0 right-0 px-3 pb-2.5 pt-8 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none">
                           <span className="text-[10px] font-medium text-white/70 tracking-wide">{img.model || "Kiara Z MAX"}</span>
                         </div>
-                        {/* Action buttons — right side */}
+                        {/* Action buttons G�� right side */}
                         <div className="absolute top-2.5 right-2.5 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
                           <button
                             onClick={(e) => { e.stopPropagation(); /* TODO: like */ }}
@@ -1491,11 +1405,11 @@ export const ModelsPage = () => {
                           className="w-full h-full object-cover transition-all duration-700 group-hover:scale-[1.03]"
                           loading="lazy"
                         />
-                        {/* Model label — bottom left */}
+                        {/* Model label G�� bottom left */}
                         <div className="absolute bottom-0 left-0 right-0 px-3 pb-2.5 pt-8 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none">
                           <span className="text-[10px] font-medium text-white/70 tracking-wide">{img.model || "Kiara Z MAX"}</span>
                         </div>
-                        {/* Action buttons — right side */}
+                        {/* Action buttons G�� right side */}
                         <div className="absolute top-2.5 right-2.5 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
                           <button
                             onClick={(e) => { e.stopPropagation(); }}
@@ -1689,7 +1603,7 @@ export const ModelsPage = () => {
           className="fixed inset-0 z-[200] bg-black/97 backdrop-blur-2xl flex items-center justify-center animate-fadeIn"
           onClick={() => setLightboxImage(null)}
         >
-          {/* Close — bigger hit area */}
+          {/* Close G�� bigger hit area */}
           <button
             onClick={(e) => { e.stopPropagation(); setLightboxImage(null); }}
             className="absolute top-5 right-5 w-12 h-12 rounded-full bg-white/[0.06] hover:bg-white/[0.15] flex items-center justify-center text-white/50 hover:text-white transition-all duration-200 z-20 cursor-pointer"
@@ -1765,7 +1679,7 @@ export const ModelsPage = () => {
 
               {/* Actions */}
               <div className="space-y-3 pt-2">
-                {/* Recreate — primary action */}
+                {/* Recreate G�� primary action */}
                 <button
                   onClick={() => {
                     // Load all settings from this image
@@ -1778,7 +1692,7 @@ export const ModelsPage = () => {
                     setLightboxImage(null);
                     // Focus the input after a tick
                     setTimeout(() => bottomTextareaRef.current?.focus(), 100);
-                    showNotification("Settings loaded — ready to recreate!", "success", "Recreate");
+                    showNotification("Settings loaded G�� ready to recreate!", "success", "Recreate");
                   }}
                   className="w-full flex items-center justify-center gap-2.5 px-5 py-3 rounded-full bg-white text-black text-[11px] font-bold uppercase tracking-wider hover:bg-zinc-200 transition-all duration-200"
                 >

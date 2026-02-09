@@ -114,8 +114,8 @@ export const ModelsSidebar = () => {
         </div>
       </nav>
 
-      {/* User / Footer Area */}
-      <div className="p-3 border-t border-white/[0.04] space-y-1 mt-auto" ref={menuRef}>
+      {/* User / Footer Area — always pinned to bottom */}
+      <div className="flex-shrink-0 p-3 border-t border-white/[0.04] space-y-1" ref={menuRef}>
         
         {isCollapsed && (
           <div className="flex justify-center mb-3">

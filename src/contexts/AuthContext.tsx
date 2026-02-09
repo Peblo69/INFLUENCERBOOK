@@ -111,12 +111,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Sign out
+  // Sign out — always redirect to landing
   const signOut = async () => {
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
     setProfile(null);
+    window.location.href = "/";
   };
 
   // Resend verification email

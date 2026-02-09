@@ -55,6 +55,21 @@ export type ProfilePreferences = {
   memory_enabled: boolean;
   auto_save: boolean;
   language: string;
+  memory_profile?: {
+    likes?: string[];
+    dislikes?: string[];
+    goals?: string[];
+    capabilities?: string[];
+    tone?: string[];
+    updated_at?: string;
+    last_updated_at?: string;
+  };
+  ai_settings?: {
+    model?: string;
+    temperature?: number;
+    max_tokens?: number;
+    reasoning_mode?: boolean;
+  };
 };
 
 export type UserProfile = {

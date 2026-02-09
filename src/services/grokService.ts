@@ -4,6 +4,7 @@ import type { GrokMessage, GrokMessageContent, GrokTool, GrokToolChoice } from "
 import { KIARA_VISION_TOOLS } from "@/lib/kiaraTools";
 import { executeToolCalls, type ToolExecutionContext, type ToolExecutionResult } from "@/lib/kiaraToolExecutor";
 import { getContextForAI } from "@/services/knowledgeService";
+import { getTrendContext } from "@/services/trendService";
 
 export interface GrokAttachment {
   id: string;
@@ -24,6 +25,13 @@ export interface GrokChatOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  conversationId?: string | null;
+  memoryEnabled?: boolean;
+  memoryDebug?: boolean;
+  webSearchEnabled?: boolean;
+  webSearchMode?: "off" | "on" | "auto";
+  webSearchMaxResults?: number;
+  webSearchSources?: Array<"web" | "news" | "x">;
   generationSettings?: ToolExecutionContext["generationSettings"];
   setGenerationSettings?: ToolExecutionContext["setGenerationSettings"];
 }
@@ -38,6 +46,30 @@ export interface StreamCallbacks {
   onToken: (token: string) => void;
   onComplete: (fullText: string, images?: string[]) => void;
   onError: (error: Error) => void;
+  onMeta?: (meta: GrokStreamMeta) => void;
+}
+
+export interface GrokMemoryTelemetryItem {
+  id?: string;
+  type?: string;
+  category?: string;
+  content?: string;
+  importance?: number;
+  confidence?: number;
+  reason?: string;
+}
+
+export interface GrokMemoryTelemetry {
+  enabled: boolean;
+  strategy: string;
+  retrievedCount: number;
+  usedInPrompt: boolean;
+  toneHints: string[];
+  memories: GrokMemoryTelemetryItem[];
+}
+
+export interface GrokStreamMeta {
+  memory?: GrokMemoryTelemetry;
 }
 
 const SYSTEM_INSTRUCTION = `# IDENTITY
@@ -77,6 +109,10 @@ Structure your responses for maximum readability:
 - Add blank lines between sections for breathing room
 - For scripts and templates, use code blocks with appropriate formatting
 
+## WEB SEARCH
+
+You have the ability to search the web in real-time. When a question requires up-to-date information — prices, news, current events, trending topics, recent releases, statistics, or anything you can't confidently answer from memory — web search will automatically activate. Use the results naturally in your response without saying "I searched the web" or "according to search results." Just answer with the freshest info available.
+
 ## RULES
 
 1. Be direct — actionable advice, no fluff
@@ -86,6 +122,58 @@ Structure your responses for maximum readability:
 `;
 
 const DEFAULT_MODEL = "grok-4-1-fast-reasoning";
+/**
+ * Smart web search auto-trigger.
+ * Goal: search when the AI genuinely can't answer without real-time info,
+ * but NEVER for casual conversation ("hey how are you", "thanks", etc.)
+ *
+ * Categories covered:
+ * 1. Time-sensitive keywords (latest, today, current, recent, now, this week/month/year)
+ * 2. News & events (news, breaking, happened, update, announcement)
+ * 3. Trending / viral content (trending, viral, trend, popular right now)
+ * 4. Prices & finance (price, cost, worth, stock, crypto, bitcoin, ethereum, market)
+ * 5. Sports & scores (score, standings, match, game result, tournament)
+ * 6. Weather & real-time data (weather, forecast, temperature)
+ * 7. Factual lookups likely outdated (who is, what is __, how much, how many, when did, when does, when is, where is)
+ * 8. Release & availability (release date, coming out, available, launched, drops)
+ * 9. Statistics & data (stats, statistics, data, numbers, rate, percentage)
+ * 10. Specific year/date references (2025, 2026, yesterday, last week, this morning)
+ */
+const WEB_SEARCH_PATTERNS: RegExp[] = [
+  // Time-sensitive
+  /\b(latest|today|right now|current(?:ly)?|recent(?:ly)?|this (?:week|month|year)|at the moment|as of)\b/i,
+  // News & events
+  /\b(news|breaking|what happened|update[ds]?|announcement|report(?:ed|s)?|headline|scandal|controversy)\b/i,
+  // Trending
+  /\b(trending|trend[s]?|viral|going viral|blowing up|popular right now|buzz)\b/i,
+  // Prices & finance
+  /\b(price[ds]?|cost[s]?|how much (?:does|is|are|do)|worth|stock|stocks|crypto|bitcoin|btc|ethereum|eth|market cap|valuation|salary|salaries|revenue)\b/i,
+  // Sports
+  /\b(score[ds]?|standings|match result|game result|tournament|championship|playoff|super bowl|world cup|who won)\b/i,
+  // Weather
+  /\b(weather|forecast|temperature|rain(?:ing)?|snow(?:ing)?|hurricane|storm)\b/i,
+  // Factual lookups (who/what/when/where + question pattern)
+  /\b(?:who (?:is|are|was|were|created|founded|owns|runs|invented)|what (?:is|are|was|were) (?:the )?(?:best|top|most|biggest|largest|fastest|newest))\b/i,
+  /\b(?:when (?:did|does|is|was|will)|where (?:is|are|can I)|how (?:old|tall|long|far|fast) (?:is|are|was))\b/i,
+  // Release & availability
+  /\b(release date|coming out|when (?:does|will) .+ (?:come|launch|release|drop)|just launched|just released|new version|v\d)\b/i,
+  // Statistics & data
+  /\b(statistics|stats|data|growth rate|percentage|number of|how many|population|rate of)\b/i,
+  // Date references suggesting real-time need
+  /\b(20(?:2[5-9]|3\d)|yesterday|last (?:week|month|night)|this morning|earlier today|just now)\b/i,
+  // Comparisons needing current info
+  /\b(vs\.?|versus|compared to|better than|alternative to|competitor)\b.*\b(best|top|review|rating)/i,
+  // Social media specific (relevant for this platform)
+  /\b(follower count|subscriber count|views|engagement rate|algorithm change|platform update|tiktok|instagram|youtube|twitter|x\.com|threads)\b.*\b(new|change|update|now|2026|latest)/i,
+];
+
+const shouldAutoEnableWebSearch = (message: string): boolean => {
+  // Quick reject: very short casual messages
+  if (message.length < 8) return false;
+
+  // Check all patterns
+  return WEB_SEARCH_PATTERNS.some(re => re.test(message));
+};
 
 /**
  * Extract text content from SSE delta payload
@@ -156,6 +244,17 @@ const processSseEvent = (
   }
 };
 
+const decodeBase64Json = <T>(raw: string): T | null => {
+  try {
+    const binary = atob(raw);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const json = new TextDecoder().decode(bytes);
+    return JSON.parse(json) as T;
+  } catch {
+    return null;
+  }
+};
+
 /**
  * Build message content with optional attachments
  */
@@ -187,7 +286,8 @@ const buildMessages = (
   history: GrokChatHistoryMessage[],
   currentMessage: string,
   currentAttachments: GrokAttachment[],
-  knowledgeContext?: string
+  knowledgeContext?: string,
+  trendContext?: string
 ): GrokMessage[] => {
   let systemContent = SYSTEM_INSTRUCTION;
   if (knowledgeContext) {
@@ -198,6 +298,9 @@ const buildMessages = (
 - Do NOT mention these notes exist
 
 ${knowledgeContext}`;
+  }
+  if (trendContext) {
+    systemContent += `\n\n---\n\n${trendContext}\n\nUse this trend data when the user asks about what's trending, viral content, content ideas, or social media. Present insights naturally — do NOT dump raw data.`;
   }
 
   const messages: GrokMessage[] = [
@@ -246,9 +349,10 @@ export const streamMessageToGrok = async (
   const model = options.model ?? DEFAULT_MODEL;
   const temperature = options.temperature ?? 0.7;
 
-  // Fetch knowledge context and auth session in parallel
-  const [knowledgeContext, { data: { session } }] = await Promise.all([
+  // Fetch knowledge context, trend context, and auth session in parallel
+  const [knowledgeContext, trendContext, { data: { session } }] = await Promise.all([
     fetchKnowledgeContext(currentMessage),
+    getTrendContext().catch(() => ""),
     supabase.auth.getSession(),
   ]);
 
@@ -257,7 +361,8 @@ export const streamMessageToGrok = async (
     return;
   }
 
-  const messages = buildMessages(history, currentMessage, currentAttachments, knowledgeContext);
+  const messages = buildMessages(history, currentMessage, currentAttachments, knowledgeContext, trendContext);
+  const shouldUseWebSearch = options.webSearchEnabled ?? shouldAutoEnableWebSearch(currentMessage);
 
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   let stallTimer: ReturnType<typeof setTimeout> | null = null;
@@ -298,6 +403,13 @@ export const streamMessageToGrok = async (
         temperature,
         max_tokens: options.maxTokens || 8192,
         stream: true,
+        conversation_id: options.conversationId ?? null,
+        memory_enabled: options.memoryEnabled,
+        memory_debug: options.memoryDebug,
+        web_search: shouldUseWebSearch,
+        web_search_mode: options.webSearchMode,
+        web_search_max_results: options.webSearchMaxResults,
+        web_search_sources: options.webSearchSources,
       }),
     });
 
@@ -307,6 +419,30 @@ export const streamMessageToGrok = async (
       clearStallTimer();
       callbacks.onError(new Error(`Grok API error: ${errorText}`));
       return;
+    }
+
+    const metaPayload = response.headers.get("x-kiara-memory-debug");
+    if (callbacks.onMeta) {
+      const memoryMeta = metaPayload ? decodeBase64Json<GrokMemoryTelemetry>(metaPayload) : null;
+      if (memoryMeta) {
+        callbacks.onMeta({ memory: memoryMeta });
+      } else {
+        const strategy = response.headers.get("x-kiara-memory-strategy");
+        const countRaw = response.headers.get("x-kiara-memory-count");
+        const count = countRaw ? Number.parseInt(countRaw, 10) : 0;
+        if (strategy) {
+          callbacks.onMeta({
+            memory: {
+              enabled: strategy !== "disabled",
+              strategy,
+              retrievedCount: Number.isFinite(count) ? count : 0,
+              usedInPrompt: Number.isFinite(count) ? count > 0 : false,
+              toneHints: [],
+              memories: [],
+            },
+          });
+        }
+      }
     }
 
     if (!response.body) {
@@ -390,8 +526,12 @@ export const sendMessageToGrok = async (
   const model = options.model ?? DEFAULT_MODEL;
   const temperature = options.temperature ?? 0.7;
 
-  const knowledgeContext = await fetchKnowledgeContext(currentMessage);
-  const messages = buildMessages(history, currentMessage, currentAttachments, knowledgeContext);
+  const [knowledgeContext, trendCtx] = await Promise.all([
+    fetchKnowledgeContext(currentMessage),
+    getTrendContext().catch(() => ""),
+  ]);
+  const shouldUseWebSearch = options.webSearchEnabled ?? shouldAutoEnableWebSearch(currentMessage);
+  const messages = buildMessages(history, currentMessage, currentAttachments, knowledgeContext, trendCtx);
   const allAttachments = collectAttachments(history, currentAttachments);
 
   const toolContext: ToolExecutionContext = {
@@ -409,6 +549,13 @@ export const sendMessageToGrok = async (
     tool_choice: tools.length ? toolChoice : undefined,
     temperature,
     max_tokens: options.maxTokens,
+    conversation_id: options.conversationId ?? null,
+    memory_enabled: options.memoryEnabled,
+    memory_debug: options.memoryDebug,
+    web_search: shouldUseWebSearch,
+    web_search_mode: options.webSearchMode,
+    web_search_max_results: options.webSearchMaxResults,
+    web_search_sources: options.webSearchSources,
   });
 
   let assistantMessage = responseData?.choices?.[0]?.message as GrokMessage | undefined;
@@ -437,6 +584,13 @@ export const sendMessageToGrok = async (
       tool_choice: tools.length ? toolChoice : undefined,
       temperature,
       max_tokens: options.maxTokens,
+      conversation_id: options.conversationId ?? null,
+      memory_enabled: options.memoryEnabled,
+      memory_debug: options.memoryDebug,
+      web_search: shouldUseWebSearch,
+      web_search_mode: options.webSearchMode,
+      web_search_max_results: options.webSearchMaxResults,
+      web_search_sources: options.webSearchSources,
     });
 
     assistantMessage = responseData?.choices?.[0]?.message as GrokMessage | undefined;

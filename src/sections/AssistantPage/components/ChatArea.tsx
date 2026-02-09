@@ -1,5 +1,10 @@
 import { useRef, useEffect, useState, useCallback, memo } from "react";
-import { streamMessageToGrok, type GrokAttachment } from "@/services/grokService";
+import {
+  streamMessageToGrok,
+  type GrokAttachment,
+  type GrokMemoryTelemetry,
+} from "@/services/grokService";
+import { supabase } from "@/lib/supabase";
 import type { Message } from "../index";
 import {
   Plus, Paperclip, Mic, Globe, ArrowUpRight, Settings,
@@ -87,21 +92,61 @@ interface ChatAreaProps {
   isStreamingRef: React.MutableRefObject<boolean>;
 }
 
-const ConfigModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+type AssistantRuntimeSettings = {
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  memoryEnabled: boolean;
+  reasoningMode: boolean;
+  memoryDebug: boolean;
+};
+
+const DEFAULT_ASSISTANT_SETTINGS: AssistantRuntimeSettings = {
+  model: "grok-4-fast",
+  temperature: 0.7,
+  maxTokens: 4096,
+  memoryEnabled: true,
+  reasoningMode: false,
+  memoryDebug: true,
+};
+
+interface ConfigModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  settings: AssistantRuntimeSettings;
+  onSave: (next: AssistantRuntimeSettings) => Promise<void>;
+  saving: boolean;
+}
+
+const ConfigModal = ({ isOpen, onClose, settings, onSave, saving }: ConfigModalProps) => {
   const [activeTab, setActiveTab] = useState<"general" | "model" | "memory" | "tools">("general");
-  const [settings, setSettings] = useState({
-    model: "grok-4-fast",
-    temperature: 0.7,
-    maxTokens: 4096,
+  const [draft, setDraft] = useState({
+    model: settings.model,
+    temperature: settings.temperature,
+    maxTokens: settings.maxTokens,
     webSearch: true,
-    memoryEnabled: true,
+    memoryEnabled: settings.memoryEnabled,
     autoSave: true,
     streamResponse: true,
     codeHighlight: true,
     imageGeneration: true,
     knowledgeBase: true,
-    reasoningMode: false,
+    reasoningMode: settings.reasoningMode,
+    memoryDebug: settings.memoryDebug,
   });
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setDraft((prev) => ({
+      ...prev,
+      model: settings.model,
+      temperature: settings.temperature,
+      maxTokens: settings.maxTokens,
+      memoryEnabled: settings.memoryEnabled,
+      reasoningMode: settings.reasoningMode,
+      memoryDebug: settings.memoryDebug,
+    }));
+  }, [isOpen, settings]);
 
   if (!isOpen) return null;
 
@@ -187,26 +232,26 @@ const ConfigModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
                   <ToggleSetting
                     label="Stream Responses"
                     description="Show AI responses in real-time"
-                    checked={settings.streamResponse}
-                    onChange={() => setSettings(s => ({ ...s, streamResponse: !s.streamResponse }))}
+                    checked={draft.streamResponse}
+                    onChange={() => setDraft(s => ({ ...s, streamResponse: !s.streamResponse }))}
                   />
                   <ToggleSetting
                     label="Auto-Save Chats"
                     description="Automatically save conversations"
-                    checked={settings.autoSave}
-                    onChange={() => setSettings(s => ({ ...s, autoSave: !s.autoSave }))}
+                    checked={draft.autoSave}
+                    onChange={() => setDraft(s => ({ ...s, autoSave: !s.autoSave }))}
                   />
                   <ToggleSetting
                     label="Code Highlighting"
                     description="Syntax highlight code blocks"
-                    checked={settings.codeHighlight}
-                    onChange={() => setSettings(s => ({ ...s, codeHighlight: !s.codeHighlight }))}
+                    checked={draft.codeHighlight}
+                    onChange={() => setDraft(s => ({ ...s, codeHighlight: !s.codeHighlight }))}
                   />
                   <ToggleSetting
                     label="Knowledge Base"
                     description="Access internal knowledge"
-                    checked={settings.knowledgeBase}
-                    onChange={() => setSettings(s => ({ ...s, knowledgeBase: !s.knowledgeBase }))}
+                    checked={draft.knowledgeBase}
+                    onChange={() => setDraft(s => ({ ...s, knowledgeBase: !s.knowledgeBase }))}
                   />
                 </div>
               </div>
@@ -226,17 +271,17 @@ const ConfigModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
                     ].map((model) => (
                       <button
                         key={model.id}
-                        onClick={() => setSettings(s => ({ ...s, model: model.id }))}
+                        onClick={() => setDraft(s => ({ ...s, model: model.id }))}
                         className={`w-full flex items-center gap-4 p-4 rounded-xl border transition-all duration-200 text-left ${
-                          settings.model === model.id
+                          draft.model === model.id
                             ? "bg-white/[0.06] border-white/20"
                             : "bg-transparent border-white/[0.04] hover:border-white/[0.08] hover:bg-white/[0.02]"
                         }`}
                       >
                         <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                          settings.model === model.id ? "border-white" : "border-white/20"
+                          draft.model === model.id ? "border-white" : "border-white/20"
                         }`}>
-                          {settings.model === model.id && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                          {draft.model === model.id && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
@@ -254,20 +299,20 @@ const ConfigModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
                 <div className="space-y-5">
                   <SliderSetting
                     label="Temperature"
-                    value={settings.temperature}
+                    value={draft.temperature}
                     min={0}
                     max={2}
                     step={0.1}
-                    onChange={(v) => setSettings(s => ({ ...s, temperature: v }))}
+                    onChange={(v) => setDraft(s => ({ ...s, temperature: v }))}
                     description="Lower = more focused, Higher = more creative"
                   />
                   <SliderSetting
                     label="Max Tokens"
-                    value={settings.maxTokens}
+                    value={draft.maxTokens}
                     min={512}
                     max={8192}
                     step={512}
-                    onChange={(v) => setSettings(s => ({ ...s, maxTokens: v }))}
+                    onChange={(v) => setDraft(s => ({ ...s, maxTokens: v }))}
                     description="Maximum response length"
                   />
                 </div>
@@ -283,8 +328,8 @@ const ConfigModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
                       <p className="text-xs text-white/40 mt-1">Show step-by-step thinking process</p>
                     </div>
                     <Switch 
-                      checked={settings.reasoningMode}
-                      onChange={() => setSettings(s => ({ ...s, reasoningMode: !s.reasoningMode }))}
+                      checked={draft.reasoningMode}
+                      onChange={() => setDraft(s => ({ ...s, reasoningMode: !s.reasoningMode }))}
                     />
                   </div>
                 </div>
@@ -297,13 +342,21 @@ const ConfigModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
                 <ToggleSetting
                   label="Enable Memory"
                   description="Kiara remembers facts about you across conversations"
-                  checked={settings.memoryEnabled}
-                  onChange={() => setSettings(s => ({ ...s, memoryEnabled: !s.memoryEnabled }))}
+                  checked={draft.memoryEnabled}
+                  onChange={() => setDraft(s => ({ ...s, memoryEnabled: !s.memoryEnabled }))}
                   large
                 />
 
-                {settings.memoryEnabled && (
+                {draft.memoryEnabled && (
                   <>
+                    <ToggleSetting
+                      label="Memory Debug Telemetry"
+                      description="Show retrieval strategy, confidence, and reasons in chat"
+                      checked={draft.memoryDebug}
+                      onChange={() => setDraft(s => ({ ...s, memoryDebug: !s.memoryDebug }))}
+                      large
+                    />
+
                     <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.04]">
                       <h4 className="text-sm font-medium text-white/80 mb-2">What Kiara knows about you</h4>
                       <div className="space-y-2">
@@ -318,12 +371,24 @@ const ConfigModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
                           </div>
                         ))}
                       </div>
-                      <button className="mt-3 text-xs text-white/40 hover:text-white/60 transition-colors">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.location.href = "/memories";
+                        }}
+                        className="mt-3 text-xs text-white/40 hover:text-white/60 transition-colors"
+                      >
                         Manage memories →
                       </button>
                     </div>
 
-                    <button className="w-full py-3 rounded-xl border border-white/[0.06] text-sm text-white/50 hover:text-red-400 hover:border-red-500/20 hover:bg-red-500/5 transition-all duration-200">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.location.href = "/memories";
+                      }}
+                      className="w-full py-3 rounded-xl border border-white/[0.06] text-sm text-white/50 hover:text-red-400 hover:border-red-500/20 hover:bg-red-500/5 transition-all duration-200"
+                    >
                       Clear All Memories
                     </button>
                   </>
@@ -337,15 +402,15 @@ const ConfigModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
                 <ToggleSetting
                   label="Web Search"
                   description="Allow Kiara to search the internet for current information"
-                  checked={settings.webSearch}
-                  onChange={() => setSettings(s => ({ ...s, webSearch: !s.webSearch }))}
+                  checked={draft.webSearch}
+                  onChange={() => setDraft(s => ({ ...s, webSearch: !s.webSearch }))}
                   large
                 />
                 <ToggleSetting
                   label="Image Generation"
                   description="Enable AI image creation with Kiara Vision"
-                  checked={settings.imageGeneration}
-                  onChange={() => setSettings(s => ({ ...s, imageGeneration: !s.imageGeneration }))}
+                  checked={draft.imageGeneration}
+                  onChange={() => setDraft(s => ({ ...s, imageGeneration: !s.imageGeneration }))}
                   large
                 />
                 <ToggleSetting
@@ -377,10 +442,25 @@ const ConfigModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
               Cancel
             </button>
             <button
-              onClick={onClose}
+              onClick={async () => {
+                try {
+                  await onSave({
+                    model: draft.model,
+                    temperature: draft.temperature,
+                    maxTokens: draft.maxTokens,
+                    memoryEnabled: draft.memoryEnabled,
+                    reasoningMode: draft.reasoningMode,
+                    memoryDebug: draft.memoryDebug,
+                  });
+                  onClose();
+                } catch (error) {
+                  console.error("[ConfigModal] Failed to save settings:", error);
+                }
+              }}
+              disabled={saving}
               className="px-5 py-2 bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.08] text-white/90 text-sm font-medium rounded-xl transition-all duration-200 hover:scale-[1.02]"
             >
-              Save Settings
+              {saving ? "Saving..." : "Save Settings"}
             </button>
           </div>
         </div>
@@ -540,12 +620,15 @@ const AssistantMessageInner = ({ msg, isStreaming, justFinished }: AssistantMess
     <div className="w-full">
       <MarkdownRenderer content={msg.content || ""} isStreaming={isStreaming} />
 
-      {/* Show loading dots only when starting and no content yet */}
+      {/* Thinking indicator — shimmer text with mini infinity SVG */}
       {isStreaming && !msg.content && (
-        <div className="flex items-center gap-1.5 py-1">
-          <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-pulse" />
-          <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-pulse [animation-delay:150ms]" />
-          <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-pulse [animation-delay:300ms]" />
+        <div className="flex items-center gap-2 py-2">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid" width="18" height="18" style={{ display: "block", flexShrink: 0 }}>
+            <g><path style={{ transform: "scale(0.8)", transformOrigin: "50px 50px" }} strokeLinecap="round" d="M24.3 30C11.4 30 5 43.3 5 50s6.4 20 19.3 20c19.3 0 32.1-40 51.4-40 C88.6 30 95 43.3 95 50s-6.4 20-19.3 20C56.4 70 43.6 30 24.3 30z" strokeDasharray="174.48 82.11" strokeWidth="7" stroke="rgba(255,255,255,0.5)" fill="none"><animate values="0;256.59" keyTimes="0;1" dur="1.1s" repeatCount="indefinite" attributeName="stroke-dashoffset" /></path></g>
+          </svg>
+          <span className="thinking-shimmer text-[13px] font-medium tracking-wide">
+            Thinking...
+          </span>
         </div>
       )}
 
@@ -600,12 +683,15 @@ export const ChatArea = ({
   const [showConfig, setShowConfig] = useState(false);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isReasoning, setIsReasoning] = useState(false);
+  const [assistantSettings, setAssistantSettings] = useState<AssistantRuntimeSettings>(DEFAULT_ASSISTANT_SETTINGS);
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [attachments, setAttachments] = useState<GrokAttachment[]>([]);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [justFinishedId, setJustFinishedId] = useState<string | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
+  const [memoryTelemetry, setMemoryTelemetry] = useState<GrokMemoryTelemetry | null>(null);
+  const [showMemoryDebug, setShowMemoryDebug] = useState(false);
 
   // ResizeObserver-based auto-scroll
   const { scrollRef: setScrollNode, contentRef: setContentNode, snapToBottom } = useSnapScroll();
@@ -617,6 +703,79 @@ export const ChatArea = ({
   const currentStreamIdRef = useRef<string | null>(null);
   const renderIntervalRef = useRef<number | null>(null);
   const sendLockRef = useRef(false);
+
+  useEffect(() => {
+    const loadAssistantSettings = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("preferences")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (error || !data?.preferences) return;
+        const prefs = data.preferences as Record<string, any>;
+        const ai = (prefs.ai_settings ?? {}) as Record<string, any>;
+
+        setAssistantSettings((prev) => ({
+          model: typeof ai.model === "string" ? ai.model : prev.model,
+          temperature: typeof ai.temperature === "number" ? ai.temperature : prev.temperature,
+          maxTokens: typeof ai.max_tokens === "number" ? ai.max_tokens : prev.maxTokens,
+          reasoningMode: typeof ai.reasoning_mode === "boolean" ? ai.reasoning_mode : prev.reasoningMode,
+          memoryDebug: typeof ai.memory_debug === "boolean" ? ai.memory_debug : prev.memoryDebug,
+          memoryEnabled: typeof prefs.memory_enabled === "boolean" ? prefs.memory_enabled : prev.memoryEnabled,
+        }));
+      } catch (error) {
+        console.warn("[ChatArea] Failed to load assistant settings:", error);
+      }
+    };
+
+    loadAssistantSettings();
+  }, []);
+
+  const saveAssistantSettings = useCallback(async (next: AssistantRuntimeSettings) => {
+    setSettingsSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("preferences")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      const currentPreferences = (profile?.preferences ?? {}) as Record<string, any>;
+      const nextPreferences = {
+        ...currentPreferences,
+        memory_enabled: next.memoryEnabled,
+        ai_settings: {
+          ...(currentPreferences.ai_settings ?? {}),
+          model: next.model,
+          temperature: next.temperature,
+          max_tokens: next.maxTokens,
+          reasoning_mode: next.reasoningMode,
+          memory_debug: next.memoryDebug,
+          updated_at: new Date().toISOString(),
+        },
+      };
+
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({ preferences: nextPreferences })
+        .eq("id", user.id);
+
+      if (updateError) throw updateError;
+      setAssistantSettings(next);
+    } finally {
+      setSettingsSaving(false);
+    }
+  }, []);
 
   // ── Render loop ──
   // Writes streamed content into the messages array at ~12fps.
@@ -747,6 +906,7 @@ export const ChatArea = ({
     setMessages((prev) => [...prev, userMsg, aiMsg]);
     setIsLoading(true);
     setStreamingMessageId(aiMsgId);
+    setMemoryTelemetry(null);
     isStreamingRef.current = true;
     snapToBottom();
 
@@ -762,7 +922,7 @@ export const ChatArea = ({
       attachments: m.attachments,
     }));
 
-    const finalPrompt = isReasoning ? `[REASONING MODE] ${userContent}` : userContent;
+    const finalPrompt = assistantSettings.reasoningMode ? `[REASONING MODE] ${userContent}` : userContent;
 
     await streamMessageToGrok(
       historyForApi,
@@ -772,6 +932,11 @@ export const ChatArea = ({
         onToken: (token) => {
           if (currentStreamIdRef.current !== aiMsgId) return;
           streamingContentRef.current += token;
+        },
+        onMeta: (meta) => {
+          if (meta.memory) {
+            setMemoryTelemetry(meta.memory);
+          }
         },
         onComplete: async (fullText) => {
           if (currentStreamIdRef.current !== aiMsgId) return;
@@ -837,6 +1002,14 @@ export const ChatArea = ({
           sendLockRef.current = false;
           isStreamingRef.current = false;
         },
+      },
+      {
+        conversationId: activeConversationId,
+        model: assistantSettings.model,
+        temperature: assistantSettings.temperature,
+        maxTokens: assistantSettings.maxTokens,
+        memoryEnabled: assistantSettings.memoryEnabled,
+        memoryDebug: assistantSettings.memoryDebug,
       }
     );
   };
@@ -877,38 +1050,27 @@ export const ChatArea = ({
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 relative z-0 scrollbar-thin scrollbar-thumb-white/5 scrollbar-track-transparent">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center select-none">
-            <div className="flex flex-col items-center gap-8 pb-20">
-              {/* 3D ASCII Infinity Logo */}
+            <div className="flex flex-col items-center gap-5 pb-32">
+              {/* Animated Infinity SVG */}
               <div className="relative">
-                {/* Glow layers */}
-                <div className="absolute inset-0 blur-3xl opacity-30">
-                  <ASCIILogo className="text-white/40" />
+                {/* Glow layer */}
+                <div className="absolute inset-0 blur-2xl opacity-30">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid" width="110" height="110" style={{ display: "block" }}>
+                    <g><path style={{ transform: "scale(0.8)", transformOrigin: "50px 50px" }} strokeLinecap="round" d="M24.3 30C11.4 30 5 43.3 5 50s6.4 20 19.3 20c19.3 0 32.1-40 51.4-40 C88.6 30 95 43.3 95 50s-6.4 20-19.3 20C56.4 70 43.6 30 24.3 30z" strokeDasharray="174.48 82.11" strokeWidth="6" stroke="rgba(255,255,255,0.4)" fill="none"><animate values="0;256.59" keyTimes="0;1" dur="1.1s" repeatCount="indefinite" attributeName="stroke-dashoffset" /></path></g>
+                  </svg>
                 </div>
-                <div className="absolute inset-0 blur-xl opacity-50">
-                  <ASCIILogo className="text-white/60" />
-                </div>
-                {/* Main logo with 3D shadow effect */}
-                <div 
-                  className="relative"
-                  style={{
-                    textShadow: `
-                      0 0 20px rgba(255,255,255,0.3),
-                      0 0 40px rgba(255,255,255,0.2),
-                      0 0 60px rgba(255,255,255,0.1),
-                      0 4px 8px rgba(0,0,0,0.5),
-                      0 8px 16px rgba(0,0,0,0.4),
-                      0 16px 32px rgba(0,0,0,0.3)
-                    `,
-                  }}
-                >
-                  <ASCIILogo className="text-white/90" />
+                {/* Main infinity */}
+                <div className="relative" style={{ filter: "drop-shadow(0 0 20px rgba(255,255,255,0.2)) drop-shadow(0 4px 12px rgba(0,0,0,0.4))" }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid" width="110" height="110" style={{ display: "block" }}>
+                    <g><path style={{ transform: "scale(0.8)", transformOrigin: "50px 50px" }} strokeLinecap="round" d="M24.3 30C11.4 30 5 43.3 5 50s6.4 20 19.3 20c19.3 0 32.1-40 51.4-40 C88.6 30 95 43.3 95 50s-6.4 20-19.3 20C56.4 70 43.6 30 24.3 30z" strokeDasharray="174.48 82.11" strokeWidth="6" stroke="rgba(255,255,255,0.9)" fill="none"><animate values="0;256.59" keyTimes="0;1" dur="1.1s" repeatCount="indefinite" attributeName="stroke-dashoffset" /></path></g>
+                  </svg>
                 </div>
               </div>
-              
+
               {/* Brand Name with 3D styling */}
-              <div className="text-center space-y-3">
-                <h1 
-                  className="text-3xl md:text-5xl font-bold tracking-tight"
+              <div className="text-center space-y-2.5">
+                <h1
+                  className="text-2xl md:text-4xl font-bold tracking-tight"
                   style={{
                     background: 'linear-gradient(180deg, #ffffff 0%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0.4) 100%)',
                     WebkitBackgroundClip: 'text',
@@ -918,10 +1080,10 @@ export const ChatArea = ({
                 >
                   AI Influencerbook
                 </h1>
-                
+
                 {/* Rotating phrase */}
-                <div 
-                  className="text-lg md:text-xl text-white/60 font-light tracking-wide"
+                <div
+                  className="text-base md:text-lg text-white/60 font-light tracking-wide"
                   style={{
                     textShadow: '0 2px 10px rgba(0,0,0,0.5)',
                   }}
@@ -971,6 +1133,41 @@ export const ChatArea = ({
 
       {/* Input */}
       <div className="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black via-black/95 to-transparent pt-20 pb-3">
+        {assistantSettings.memoryDebug && memoryTelemetry && (
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 mb-2">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-md overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowMemoryDebug((prev) => !prev)}
+                className="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-white/[0.03] transition-colors"
+              >
+                <div className="text-[11px] text-white/70 uppercase tracking-[0.16em]">
+                  Memory Telemetry • {memoryTelemetry.strategy} • {memoryTelemetry.retrievedCount} retrieved
+                </div>
+                <ChevronDown
+                  size={14}
+                  className={`text-white/50 transition-transform duration-200 ${showMemoryDebug ? "rotate-180" : ""}`}
+                />
+              </button>
+              {showMemoryDebug && (
+                <div className="px-4 pb-3 space-y-2">
+                  {memoryTelemetry.memories.length === 0 ? (
+                    <p className="text-xs text-white/45">No memory entries selected for this response.</p>
+                  ) : (
+                    memoryTelemetry.memories.map((item, idx) => (
+                      <div key={`${item.id || idx}-${idx}`} className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                        <p className="text-[12px] text-white/80 leading-relaxed">{item.content || "(empty memory)"}</p>
+                        <div className="mt-1 text-[10px] text-white/45 uppercase tracking-[0.12em]">
+                          {(item.category || item.type || "general")} • conf {Number(item.confidence ?? item.importance ?? 0).toFixed(2)} • {item.reason || "selected"}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {showScrollButton && messages.length > 0 && (
           <div className="flex justify-center mb-2">
             <button
@@ -1111,7 +1308,13 @@ export const ChatArea = ({
         </div>
       </div>
 
-      <ConfigModal isOpen={showConfig} onClose={() => setShowConfig(false)} />
+      <ConfigModal
+        isOpen={showConfig}
+        onClose={() => setShowConfig(false)}
+        settings={assistantSettings}
+        onSave={saveAssistantSettings}
+        saving={settingsSaving}
+      />
     </div>
   );
 };
