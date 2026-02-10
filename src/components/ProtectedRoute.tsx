@@ -35,7 +35,7 @@ const AuthGate = () => {
 };
 
 export function ProtectedRoute({ children, fallback }: ProtectedRouteProps) {
-  const { user, loading, isEmailVerified } = useAuth();
+  const { user, loading, isEmailVerified, profile, signOut } = useAuth();
   const location = useLocation();
 
   // Only show inline loader during initial auth check
@@ -54,6 +54,31 @@ export function ProtectedRoute({ children, fallback }: ProtectedRouteProps) {
   // Authenticated but not verified
   if (user && !isEmailVerified) {
     return <Navigate to="/auth?verify=1" replace state={{ from: location.pathname }} />;
+  }
+
+  // Suspended users are blocked from protected pages
+  if (profile?.is_suspended) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-black px-6">
+        <div className="w-full max-w-xl rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-white">
+          <h2 className="text-xl font-semibold text-red-300">Account Suspended</h2>
+          <p className="mt-3 text-sm text-white/70">
+            Your account is currently suspended. Contact support if you believe this was a mistake.
+          </p>
+          {profile.suspension_reason && (
+            <p className="mt-3 rounded-lg border border-red-400/20 bg-black/40 px-3 py-2 text-xs text-red-200">
+              Reason: {profile.suspension_reason}
+            </p>
+          )}
+          <button
+            onClick={() => void signOut()}
+            className="mt-6 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm hover:bg-white/20"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // Authenticated and verified

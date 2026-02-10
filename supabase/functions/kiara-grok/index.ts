@@ -8,6 +8,7 @@ const XAI_API_KEY =
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+const KIARA_INTELLIGENCE_TOKEN = Deno.env.get("KIARA_INTELLIGENCE_TOKEN") ?? "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -191,8 +192,20 @@ const filterMessagesForExtraction = (messages: unknown): Array<{ role: string; c
         content: extractText(m.content).trim(),
       };
     })
-    .filter((m) => (m.role === "user" || m.role === "assistant") && m.content.length > 0)
+    .filter((m) => m.role === "user" && m.content.length > 0)
     .slice(-20);
+};
+
+const DEFAULT_NON_THINKING_MODEL = "grok-4";
+
+const normalizeModel = (value: unknown): string => {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return DEFAULT_NON_THINKING_MODEL;
+  if (raw.includes("reason")) return DEFAULT_NON_THINKING_MODEL;
+  if (raw === "grok-4-fast" || raw === "grok-4.1" || raw === "grok-4-1") {
+    return DEFAULT_NON_THINKING_MODEL;
+  }
+  return raw.startsWith("grok-4") ? DEFAULT_NON_THINKING_MODEL : DEFAULT_NON_THINKING_MODEL;
 };
 
 /**
@@ -262,6 +275,17 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  // Optional gateway-only lock: set KIARA_INTELLIGENCE_TOKEN in secrets to enforce.
+  if (KIARA_INTELLIGENCE_TOKEN) {
+    const token = req.headers.get("x-kiara-intelligence-token") ?? "";
+    if (token !== KIARA_INTELLIGENCE_TOKEN) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+  }
+
   if (!XAI_API_KEY) {
     return new Response(
       JSON.stringify({ error: "XAI_API_KEY is not configured" }),
@@ -303,14 +327,26 @@ serve(async (req) => {
   }
 
   const body = { ...(requestBody as Record<string, unknown>) };
+  body.model = normalizeModel(body.model);
   const userMessage = getLatestUserMessage(body.messages);
   const conversationId = typeof body.conversation_id === "string" ? body.conversation_id : null;
   const extractionMessages = filterMessagesForExtraction(body.messages);
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("preferences")
+    .select("preferences, is_suspended, suspension_reason")
     .eq("id", user.id)
     .maybeSingle();
+
+  if (profile?.is_suspended) {
+    return new Response(
+      JSON.stringify({
+        error: "Account suspended",
+        reason: profile?.suspension_reason || null,
+      }),
+      { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
   const profilePreferences = profile?.preferences ?? {};
   let memoryTelemetry: MemoryTelemetry = {
     enabled: false,

@@ -3,8 +3,8 @@ import { BrowserRouter, Routes, Route, Outlet, useLocation } from "react-router-
 import { Header } from "@/sections/Header";
 import { Footer } from "@/sections/Footer";
 import { useAuth } from "@/contexts/AuthContext";
-import { useI18n } from "@/contexts/I18nContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { trackActivity } from "@/services/activityTracker";
 // LanguageSwitcher is now embedded in each page's navbar/sidebar
 import { DomAutoTranslator } from "@/components/DomAutoTranslator";
 
@@ -26,6 +26,7 @@ import { App as LandingApp } from "@/Landing Example/www.imagine.art_rpc6do/src/
 import { AuthPage } from "@/sections/AuthPage";
 import { AssistantPage } from "@/sections/AssistantPage";
 import { ModelsPage } from "@/sections/ModelsPage";
+import { ImagesGalleryPage } from "@/sections/ImagesGalleryPage";
 import { InfluencersPage } from "@/sections/InfluencersPage";
 import { MainContent } from "@/sections/MainContent";
 
@@ -41,6 +42,7 @@ const importVideoEditor = () => import("@/sections/VideoEditorPage").then(m => (
 const importVideos = () => import("@/sections/VideosPage").then(m => ({ default: m.VideosPage }));
 const importStudioLabs = () => import("@/sections/KiaraStudioLabsPage").then(m => ({ default: m.KiaraStudioLabsPage }));
 const importInstallExt = () => import("@/sections/InstallExtensionPage").then(m => ({ default: m.InstallExtensionPage }));
+const importAdmin = () => import("@/sections/AdminPage").then(m => ({ default: m.AdminPage }));
 
 const LazyLibrary = lazy(importLibrary);
 const LazyUploads = lazy(importUploads);
@@ -52,6 +54,7 @@ const LazyVideoEditor = lazy(importVideoEditor);
 const LazyVideos = lazy(importVideos);
 const LazyStudioLabs = lazy(importStudioLabs);
 const LazyInstallExt = lazy(importInstallExt);
+const LazyAdmin = lazy(importAdmin);
 
 // Prefetch all lazy chunks after the app loads — pages will be instant
 if (typeof window !== "undefined") {
@@ -66,6 +69,7 @@ if (typeof window !== "undefined") {
     importVideos();
     importStudioLabs();
     importInstallExt();
+    importAdmin();
   };
   if ("requestIdleCallback" in window) {
     (window as any).requestIdleCallback(prefetchAll, { timeout: 5000 });
@@ -92,6 +96,7 @@ const AppFrame = () => {
     "/kiara-studio",
     "/kiara-studio-labs",
     "/influencers",
+    "/admin",
   ]);
   const hideHeader = hideHeaderRoutes.has(location.pathname);
 
@@ -111,7 +116,18 @@ const AppFrame = () => {
 };
 
 const AppRoutes = () => {
-  const { loading: authLoading } = useAuth();
+  const { user } = useAuth();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!user) return;
+    void trackActivity("page_view", {
+      path: location.pathname,
+      metadata: {
+        search: location.search || null,
+      },
+    });
+  }, [user?.id, location.pathname, location.search]);
 
   // Don't block rendering for auth - ProtectedRoute handles it per-route
   // This prevents the global loading spinner on every navigation
@@ -190,7 +206,7 @@ const AppRoutes = () => {
           path="/images"
           element={
             <ProtectedRoute>
-              <ModelsPage />
+              <ImagesGalleryPage />
             </ProtectedRoute>
           }
         />
@@ -207,6 +223,16 @@ const AppRoutes = () => {
           element={
             <ProtectedRoute>
               <InfluencersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<RouteLoading />}>
+                <LazyAdmin />
+              </Suspense>
             </ProtectedRoute>
           }
         />

@@ -55,11 +55,46 @@ export interface GrokFile {
 
 export class GrokAPI {
   private baseUrl: string;
+  private legacyUrl: string;
   private trainingFileIds: string[] = []; // IDs of uploaded training files
 
   constructor(_apiKey?: string, trainingFileIds?: string[]) {
-    this.baseUrl = `${getKiaraBaseUrl()}/kiara-grok`;
+    this.baseUrl = `${getKiaraBaseUrl()}/kiara-intelligence`;
+    this.legacyUrl = `${getKiaraBaseUrl()}/kiara-grok`;
     this.trainingFileIds = trainingFileIds || [];
+  }
+
+  private async post(body: Record<string, unknown>) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      throw new Error("Not authenticated");
+    }
+
+    const response = await fetch(this.baseUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        route: "assistant",
+        action: "chat",
+        payload: body,
+      }),
+    });
+
+    if (response.status === 404) {
+      return fetch(this.legacyUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(body),
+      });
+    }
+
+    return response;
   }
 
   /**
@@ -120,19 +155,7 @@ export class GrokAPI {
       requestBody.tool_choice = toolChoice;
     }
 
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-      throw new Error("Not authenticated");
-    }
-
-    const response = await fetch(this.baseUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify(requestBody),
-    });
+    const response = await this.post(requestBody);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -196,22 +219,10 @@ export class GrokAPI {
   }
 
   async chat(messages: GrokMessage[]): Promise<string> {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-      throw new Error("Not authenticated");
-    }
-
-    const response = await fetch(this.baseUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        model: "grok-4-fast",
-        messages: messages,
-        temperature: 0.7,
-      }),
+    const response = await this.post({
+      model: "grok-4-fast",
+      messages,
+      temperature: 0.7,
     });
 
     if (!response.ok) {

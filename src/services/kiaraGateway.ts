@@ -554,3 +554,175 @@ export const deleteLoRA = async (loraId: string): Promise<{ success: boolean }> 
     lora_id: loraId,
   });
 };
+
+// ==================== KIARA VISION ====================
+
+export type KiaraVisionImageModel = "gen4_image_turbo" | "gen4_image" | "gemini_2.5_flash";
+
+export type KiaraVisionVoicePreset =
+  | "Maya" | "Arjun" | "Serene" | "Bernard" | "Billy" | "Mark"
+  | "Clint" | "Mabel" | "Chad" | "Leslie" | "Eleanor" | "Elias"
+  | "Elliot" | "Grungle" | "Brodie" | "Sandra" | "Kirk" | "Kylie"
+  | "Lara" | "Lisa" | "Malachi" | "Marlene" | "Martin" | "Miriam"
+  | "Monster" | "Paula" | "Pip" | "Rusty" | "Ragnar" | "Xylar"
+  | "Maggie" | "Jack" | "Katie" | "Noah" | "James" | "Rina"
+  | "Ella" | "Mariah" | "Frank" | "Claudia" | "Niki" | "Vincent"
+  | "Kendrick" | "Myrna" | "Tom" | "Wanda" | "Benjamin" | "Kiana"
+  | "Rachel";
+
+export type KiaraVisionDubbingLanguage =
+  | "en" | "zh" | "es" | "hi" | "pt" | "fr" | "de" | "ja"
+  | "ar" | "ko" | "it" | "ru" | "nl" | "tr" | "pl" | "sv"
+  | "id" | "fil" | "ms" | "ro" | "uk" | "el" | "cs" | "da"
+  | "fi" | "bg" | "hr" | "sk" | "ta";
+
+export interface KiaraVisionReferenceImage {
+  uri: string;
+  tag?: string;
+}
+
+export interface KiaraVisionTaskResponse {
+  success: boolean;
+  model_id?: string;
+  job_id?: string;
+  task_id?: string;
+  status?: string;
+  images?: string[];
+  video?: string;
+  audio?: string;
+  output?: string | string[];
+  error?: string;
+  progress?: number | null;
+  createdAt?: string;
+  credits_charged?: number;
+  creditBalance?: number;
+  tier?: Record<string, unknown>;
+  usage?: Record<string, unknown>;
+}
+
+const kiaraVisionRequest = async <T>(
+  action: string,
+  payload: Record<string, unknown> = {}
+): Promise<T> => {
+  try {
+    return await kiaraRequest<T>("kiara-intelligence", {
+      route: "vision",
+      action,
+      payload,
+    });
+  } catch (error: any) {
+    const message = String(error?.message || "");
+    const gatewayUnavailable =
+      /failed to fetch/i.test(message) ||
+      /networkerror/i.test(message) ||
+      /err_failed/i.test(message) ||
+      /request failed \(404\)/i.test(message) ||
+      /unsupported route/i.test(message) ||
+      /unsupported.*action/i.test(message);
+
+    if (!gatewayUnavailable) throw error;
+
+    return kiaraRequest<T>("kiara-vision", {
+      action,
+      ...payload,
+    });
+  }
+};
+
+/** Generate images from text/reference via Kiara Vision */
+export const kiaraVisionTextToImage = async (params: {
+  promptText: string;
+  model?: KiaraVisionImageModel;
+  ratio?: string;
+  referenceImages?: KiaraVisionReferenceImage[];
+  seed?: number;
+  contentModeration?: { publicFigureThreshold?: "auto" | "low" };
+}): Promise<KiaraVisionTaskResponse> => {
+  return kiaraVisionRequest<KiaraVisionTaskResponse>("text-to-image", params as Record<string, unknown>);
+};
+
+/** Generate video from image — returns task_id for polling */
+export const kiaraVisionImageToVideo = async (params: {
+  promptImage: string;
+  promptText?: string;
+  duration?: 5 | 10;
+  ratio?: string;
+  seed?: number;
+}): Promise<KiaraVisionTaskResponse> => {
+  return kiaraVisionRequest<KiaraVisionTaskResponse>("image-to-video", params as Record<string, unknown>);
+};
+
+/** Character performance — returns task_id for polling */
+export const kiaraVisionCharacterPerformance = async (params: {
+  character: string | { type: "image" | "video"; uri: string };
+  reference: string | { type: "video"; uri: string };
+  seed?: number;
+  bodyControl?: boolean;
+  expressionIntensity?: number;
+  ratio?: string;
+}): Promise<KiaraVisionTaskResponse> => {
+  return kiaraVisionRequest<KiaraVisionTaskResponse>("character-performance", params as Record<string, unknown>);
+};
+
+/** Generate sound effect from text */
+export const kiaraVisionSoundEffect = async (params: {
+  promptText: string;
+  duration?: number;
+  loop?: boolean;
+}): Promise<KiaraVisionTaskResponse> => {
+  return kiaraVisionRequest<KiaraVisionTaskResponse>("sound-effect", params as Record<string, unknown>);
+};
+
+/** Text to speech with voice preset */
+export const kiaraVisionTextToSpeech = async (params: {
+  promptText: string;
+  voice?: KiaraVisionVoicePreset;
+}): Promise<KiaraVisionTaskResponse> => {
+  return kiaraVisionRequest<KiaraVisionTaskResponse>("text-to-speech", params as Record<string, unknown>);
+};
+
+/** Speech to speech (voice conversion) — returns task_id for polling */
+export const kiaraVisionSpeechToSpeech = async (params: {
+  media: string | { type: "audio" | "video"; uri: string };
+  voice?: KiaraVisionVoicePreset;
+  removeBackgroundNoise?: boolean;
+}): Promise<KiaraVisionTaskResponse> => {
+  return kiaraVisionRequest<KiaraVisionTaskResponse>("speech-to-speech", params as Record<string, unknown>);
+};
+
+/** Voice dubbing (translation) — returns task_id for polling */
+export const kiaraVisionVoiceDubbing = async (params: {
+  audioUri: string;
+  targetLang: KiaraVisionDubbingLanguage;
+  disableVoiceCloning?: boolean;
+  dropBackgroundAudio?: boolean;
+  numSpeakers?: number;
+}): Promise<KiaraVisionTaskResponse> => {
+  return kiaraVisionRequest<KiaraVisionTaskResponse>("voice-dubbing", params as Record<string, unknown>);
+};
+
+/** Voice isolation (separate voice from background) */
+export const kiaraVisionVoiceIsolation = async (params: {
+  audioUri: string;
+}): Promise<KiaraVisionTaskResponse> => {
+  return kiaraVisionRequest<KiaraVisionTaskResponse>("voice-isolation", params as Record<string, unknown>);
+};
+
+/** Check task status (for frontend polling of slow actions) */
+export const kiaraVisionTaskStatus = async (taskId: string): Promise<KiaraVisionTaskResponse> => {
+  return kiaraVisionRequest<KiaraVisionTaskResponse>("task-status", {
+    task_id: taskId,
+  });
+};
+
+/** Cancel a running task */
+export const kiaraVisionCancelTask = async (taskId: string): Promise<{ success: boolean }> => {
+  return kiaraVisionRequest<{ success: boolean }>("cancel-task", {
+    task_id: taskId,
+  });
+};
+
+/** Get organization info (credits, usage tier) */
+export const kiaraVisionOrganization = async (): Promise<KiaraVisionTaskResponse> => {
+  return kiaraVisionRequest<KiaraVisionTaskResponse>("organization");
+};

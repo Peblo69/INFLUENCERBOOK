@@ -33,6 +33,7 @@ export const ModelsSidebar = () => {
     { href: "/images", label: "Images", icon: <ImageIcon /> },
     { href: "/videos", label: "Video", icon: <VideoIcon /> },
     { href: "/influencers", label: "Influencers", icon: <InfluencerIcon /> },
+    ...(profile?.is_admin ? [{ href: "/admin", label: "Admin", icon: <AdminIcon /> }] : []),
   ];
 
   const libraryLinks = [
@@ -138,6 +139,12 @@ export const ModelsSidebar = () => {
               {showMenu && !isCollapsed && (
                 <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 bg-black/95 border border-white/[0.06] rounded-xl shadow-2xl overflow-hidden z-[60] backdrop-blur-xl">
                   <div className="p-1.5 space-y-0.5">
+                    {profile?.is_admin && (
+                      <button onClick={() => navigate("/admin")} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] text-blue-300/80 hover:text-blue-200 hover:bg-blue-500/[0.1] rounded-lg transition-colors">
+                        <AdminIcon />
+                        <span className="font-normal">Admin Panel</span>
+                      </button>
+                    )}
                     <button onClick={() => navigate("/settings")} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] text-white/50 hover:text-white/80 hover:bg-white/[0.05] rounded-lg transition-colors">
                       <Settings size={14} />
                       <span className="font-normal">Settings</span>
@@ -281,6 +288,13 @@ const VideoIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="23 7 16 12 23 17 23 7" />
     <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+  </svg>
+);
+
+const AdminIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3 4 7v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V7z" />
+    <path d="m9 12 2 2 4-4" />
   </svg>
 );
 

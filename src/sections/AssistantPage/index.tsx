@@ -6,7 +6,6 @@ import type { GrokAttachment } from "@/services/grokService";
 import {
   listConversations,
   createConversation,
-  getConversation,
   renameConversation,
   deleteConversation,
   listMessages,
@@ -25,18 +24,37 @@ export interface Message {
 
 type ActiveModal = "none" | "settings" | "upgrade";
 
-// Convert DB message to UI message
-const dbMessageToUI = (msg: ChatMessage): Message => ({
-  id: msg.id,
-  role: msg.role as "user" | "assistant",
-  content: msg.content || "",
-  attachments: msg.attachments?.map((att) => ({
+const attachmentToDataUrl = (att: ChatMessage["attachments"][number]): GrokAttachment | null => {
+  const rawUrl = typeof att.url === "string" ? att.url : "";
+  if (!rawUrl.startsWith("data:")) return null;
+
+  const [header, base64 = ""] = rawUrl.split(",", 2);
+  if (!base64) return null;
+
+  const mimeMatch = /^data:([^;]+);base64$/i.exec(header);
+  const mimeType = mimeMatch?.[1] || att.mimeType || "image/png";
+
+  return {
     id: att.id,
-    data: "", // We don't store base64 in DB, would need to fetch from storage
-    mimeType: att.mimeType || "image/png",
-  })),
-  images: msg.images || undefined,
-});
+    data: base64,
+    mimeType,
+  };
+};
+
+// Convert DB message to UI message
+const dbMessageToUI = (msg: ChatMessage): Message => {
+  const attachments = (msg.attachments || [])
+    .map(attachmentToDataUrl)
+    .filter((att): att is GrokAttachment => att !== null);
+
+  return {
+    id: msg.id,
+    role: msg.role as "user" | "assistant",
+    content: msg.content || "",
+    attachments: attachments.length > 0 ? attachments : undefined,
+    images: msg.images || undefined,
+  };
+};
 
 export const AssistantPage = () => {
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
@@ -44,6 +62,7 @@ export const AssistantPage = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [activeModal, setActiveModal] = useState<ActiveModal>("none");
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
+  const [messageReloadKey, setMessageReloadKey] = useState(0);
   const skipNextLoadRef = useRef(false); // Skip loading when we just created a convo
   const isStreamingRef = useRef(false); // Prevents message-load from overwriting active stream
 
@@ -97,7 +116,7 @@ export const AssistantPage = () => {
     };
     loadMessages();
     return () => { cancelled = true; };
-  }, [currentConversationId]);
+  }, [currentConversationId, messageReloadKey]);
 
   // Create new chat
   const handleNewChat = useCallback(async () => {
@@ -149,6 +168,9 @@ export const AssistantPage = () => {
         attachments: message.attachments?.map((att) => ({
           id: att.id,
           mimeType: att.mimeType,
+          url: att.data ? `data:${att.mimeType};base64,${att.data}` : undefined,
+          name: att.file?.name,
+          size: att.file?.size,
         })),
       });
     } catch (error) {
@@ -184,6 +206,10 @@ export const AssistantPage = () => {
     }
   }, []);
 
+  const handleStreamSettled = useCallback(() => {
+    setMessageReloadKey((prev) => prev + 1);
+  }, []);
+
   return (
     <div className="flex h-screen w-full bg-black text-white font-sans overflow-hidden">
       {/* Sidebar - Desktop */}
@@ -211,6 +237,7 @@ export const AssistantPage = () => {
           onSaveMessage={handleSaveMessage}
           refreshConversations={refreshConversations}
           isStreamingRef={isStreamingRef}
+          onStreamSettled={handleStreamSettled}
         />
       </div>
 

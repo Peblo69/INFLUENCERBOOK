@@ -29,6 +29,10 @@ export interface GrokChatOptions {
   memoryEnabled?: boolean;
   memoryDebug?: boolean;
   webSearchEnabled?: boolean;
+  knowledgeBaseEnabled?: boolean;
+  trendContextEnabled?: boolean;
+  customInstructions?: string;
+  historyTokenBudget?: number;
   webSearchMode?: "off" | "on" | "auto";
   webSearchMaxResults?: number;
   webSearchSources?: Array<"web" | "news" | "x">;
@@ -121,7 +125,16 @@ You have the ability to search the web in real-time. When a question requires up
 4. Match the user's energy — short question = concise answer, deep question = thorough breakdown
 `;
 
-const DEFAULT_MODEL = "grok-4-1-fast-reasoning";
+const DEFAULT_MODEL = "grok-4";
+
+const normalizeRequestedModel = (value?: string): string => {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return DEFAULT_MODEL;
+  if (raw.includes("reason")) return DEFAULT_MODEL;
+  if (raw === "grok-4-fast") return DEFAULT_MODEL;
+  if (raw === "grok-4.1" || raw === "grok-4-1") return DEFAULT_MODEL;
+  return raw.startsWith("grok-4") ? DEFAULT_MODEL : DEFAULT_MODEL;
+};
 /**
  * Smart web search auto-trigger.
  * Goal: search when the AI genuinely can't answer without real-time info,
@@ -255,6 +268,54 @@ const decodeBase64Json = <T>(raw: string): T | null => {
   }
 };
 
+const estimateTokens = (text: string): number => {
+  if (!text) return 0;
+  return Math.ceil(text.length / 4);
+};
+
+const estimateMessageTokens = (message: GrokChatHistoryMessage): number => {
+  const textTokens = estimateTokens(message.content || "");
+  const attachmentTokens = (message.attachments?.length || 0) * 700;
+  return textTokens + attachmentTokens + 16;
+};
+
+const trimHistoryByBudget = (
+  history: GrokChatHistoryMessage[],
+  tokenBudget: number
+): GrokChatHistoryMessage[] => {
+  if (!history.length || tokenBudget <= 0) return [];
+
+  const cappedHistory = history.slice(-80);
+  const selected: GrokChatHistoryMessage[] = [];
+  let used = 0;
+
+  for (let i = cappedHistory.length - 1; i >= 0; i -= 1) {
+    const message = cappedHistory[i];
+    const messageCost = estimateMessageTokens(message);
+
+    if (selected.length > 0 && used + messageCost > tokenBudget) {
+      continue;
+    }
+
+    if (selected.length === 0 && messageCost > tokenBudget) {
+      const reserve = 64;
+      const allowedChars = Math.max(0, (tokenBudget - reserve) * 4);
+      selected.unshift({
+        ...message,
+        content: allowedChars > 0 ? message.content.slice(-allowedChars) : "",
+      });
+      used = tokenBudget;
+      break;
+    }
+
+    selected.unshift(message);
+    used += messageCost;
+    if (used >= tokenBudget) break;
+  }
+
+  return selected;
+};
+
 /**
  * Build message content with optional attachments
  */
@@ -287,9 +348,14 @@ const buildMessages = (
   currentMessage: string,
   currentAttachments: GrokAttachment[],
   knowledgeContext?: string,
-  trendContext?: string
+  trendContext?: string,
+  customInstructions?: string
 ): GrokMessage[] => {
   let systemContent = SYSTEM_INSTRUCTION;
+  const custom = (customInstructions || "").trim();
+  if (custom) {
+    systemContent += `\n\n---\n\nUSER CUSTOM INSTRUCTIONS:\n${custom}\n\nFollow these custom instructions unless they conflict with safety or explicit user requests in the current chat.`;
+  }
   if (knowledgeContext) {
     systemContent += `\n\n---\n\nBELOW ARE INTERNAL REFERENCE NOTES. Rules:
 - NEVER reproduce these notes verbatim — synthesize and paraphrase in your own voice
@@ -346,13 +412,24 @@ export const streamMessageToGrok = async (
   callbacks: StreamCallbacks,
   options: GrokChatOptions = {}
 ): Promise<void> => {
-  const model = options.model ?? DEFAULT_MODEL;
+  const model = normalizeRequestedModel(options.model);
   const temperature = options.temperature ?? 0.7;
+  const maxTokens = options.maxTokens ?? 8192;
+  const knowledgeBaseEnabled = options.knowledgeBaseEnabled ?? true;
+  const trendContextEnabled = options.trendContextEnabled ?? knowledgeBaseEnabled;
+  const historyTokenBudget = options.historyTokenBudget ?? Math.max(1200, Math.min(12000, Math.floor(maxTokens * 2.5)));
 
-  // Fetch knowledge context, trend context, and auth session in parallel
+  const knowledgePromise = knowledgeBaseEnabled
+    ? fetchKnowledgeContext(currentMessage)
+    : Promise.resolve("");
+  const trendPromise = trendContextEnabled
+    ? getTrendContext().catch(() => "")
+    : Promise.resolve("");
+
+  // Fetch optional contexts and auth session in parallel
   const [knowledgeContext, trendContext, { data: { session } }] = await Promise.all([
-    fetchKnowledgeContext(currentMessage),
-    getTrendContext().catch(() => ""),
+    knowledgePromise,
+    trendPromise,
     supabase.auth.getSession(),
   ]);
 
@@ -361,10 +438,24 @@ export const streamMessageToGrok = async (
     return;
   }
 
-  const messages = buildMessages(history, currentMessage, currentAttachments, knowledgeContext, trendContext);
+  const contextOverhead =
+    estimateTokens(currentMessage) +
+    estimateTokens(options.customInstructions || "") +
+    estimateTokens(knowledgeContext || "") +
+    estimateTokens(trendContext || "") +
+    256;
+  const historyBudget = Math.max(0, historyTokenBudget - contextOverhead);
+  const trimmedHistory = trimHistoryByBudget(history, historyBudget);
+  const messages = buildMessages(
+    trimmedHistory,
+    currentMessage,
+    currentAttachments,
+    knowledgeContext,
+    trendContext,
+    options.customInstructions
+  );
   const shouldUseWebSearch = options.webSearchEnabled ?? shouldAutoEnableWebSearch(currentMessage);
 
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   let stallTimer: ReturnType<typeof setTimeout> | null = null;
   const controller = new AbortController();
   const STALL_TIMEOUT_MS = 60000; // Increased to 60s for long generations
@@ -386,32 +477,34 @@ export const streamMessageToGrok = async (
   };
 
   try {
-    const url = `${getKiaraBaseUrl()}/kiara-grok`;
     resetStallTimer();
-    
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": anonKey,
-        "Authorization": `Bearer ${session.access_token}`,
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature,
-        max_tokens: options.maxTokens || 8192,
-        stream: true,
-        conversation_id: options.conversationId ?? null,
-        memory_enabled: options.memoryEnabled,
-        memory_debug: options.memoryDebug,
-        web_search: shouldUseWebSearch,
-        web_search_mode: options.webSearchMode,
-        web_search_max_results: options.webSearchMaxResults,
-        web_search_sources: options.webSearchSources,
-      }),
-    });
+    const sendStreamRequest = async (webSearch: boolean | undefined) => {
+      return postAssistantGateway(
+        session.access_token,
+        {
+          model,
+          messages,
+          temperature,
+          max_tokens: maxTokens,
+          stream: true,
+          conversation_id: options.conversationId ?? null,
+          memory_enabled: options.memoryEnabled,
+          memory_debug: options.memoryDebug,
+          web_search: webSearch,
+          web_search_mode: options.webSearchMode,
+          web_search_max_results: options.webSearchMaxResults,
+          web_search_sources: options.webSearchSources,
+        },
+        controller.signal
+      );
+    };
+
+    let response = await sendStreamRequest(shouldUseWebSearch);
+    if (!response.ok && shouldUseWebSearch === true) {
+      const firstError = await response.text();
+      console.warn("[grokService] Stream request failed with web search, retrying without web search:", firstError);
+      response = await sendStreamRequest(false);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -523,16 +616,35 @@ export const sendMessageToGrok = async (
 ): Promise<GrokChatResult> => {
   const tools = options.tools ?? (KIARA_VISION_TOOLS as unknown as GrokTool[]);
   const toolChoice = options.toolChoice ?? "auto";
-  const model = options.model ?? DEFAULT_MODEL;
+  const model = normalizeRequestedModel(options.model);
   const temperature = options.temperature ?? 0.7;
+  const maxTokens = options.maxTokens ?? 8192;
+  const knowledgeBaseEnabled = options.knowledgeBaseEnabled ?? true;
+  const trendContextEnabled = options.trendContextEnabled ?? knowledgeBaseEnabled;
+  const historyTokenBudget = options.historyTokenBudget ?? Math.max(1200, Math.min(12000, Math.floor(maxTokens * 2.5)));
 
   const [knowledgeContext, trendCtx] = await Promise.all([
-    fetchKnowledgeContext(currentMessage),
-    getTrendContext().catch(() => ""),
+    knowledgeBaseEnabled ? fetchKnowledgeContext(currentMessage) : Promise.resolve(""),
+    trendContextEnabled ? getTrendContext().catch(() => "") : Promise.resolve(""),
   ]);
   const shouldUseWebSearch = options.webSearchEnabled ?? shouldAutoEnableWebSearch(currentMessage);
-  const messages = buildMessages(history, currentMessage, currentAttachments, knowledgeContext, trendCtx);
-  const allAttachments = collectAttachments(history, currentAttachments);
+  const contextOverhead =
+    estimateTokens(currentMessage) +
+    estimateTokens(options.customInstructions || "") +
+    estimateTokens(knowledgeContext || "") +
+    estimateTokens(trendCtx || "") +
+    256;
+  const historyBudget = Math.max(0, historyTokenBudget - contextOverhead);
+  const trimmedHistory = trimHistoryByBudget(history, historyBudget);
+  const messages = buildMessages(
+    trimmedHistory,
+    currentMessage,
+    currentAttachments,
+    knowledgeContext,
+    trendCtx,
+    options.customInstructions
+  );
+  const allAttachments = collectAttachments(trimmedHistory, currentAttachments);
 
   const toolContext: ToolExecutionContext = {
     uploadedFiles: allAttachments.map((att) => att.file!).filter(Boolean),
@@ -542,13 +654,26 @@ export const sendMessageToGrok = async (
     setGenerationSettings: options.setGenerationSettings,
   };
 
-  let responseData = await grokRequest({
+  const requestWithFallback = async (body: Record<string, unknown>) => {
+    try {
+      return await grokRequest(body);
+    } catch (error) {
+      if (body.web_search === true) {
+        console.warn("[grokService] Non-stream request failed with web search, retrying without web search:", error);
+        const fallbackBody = { ...body, web_search: false };
+        return grokRequest(fallbackBody);
+      }
+      throw error;
+    }
+  };
+
+  let responseData = await requestWithFallback({
     model,
     messages,
     tools: tools.length ? tools : undefined,
     tool_choice: tools.length ? toolChoice : undefined,
     temperature,
-    max_tokens: options.maxTokens,
+    max_tokens: maxTokens,
     conversation_id: options.conversationId ?? null,
     memory_enabled: options.memoryEnabled,
     memory_debug: options.memoryDebug,
@@ -577,13 +702,13 @@ export const sendMessageToGrok = async (
     });
     messages.push(...toToolMessages(results));
 
-    responseData = await grokRequest({
+    responseData = await requestWithFallback({
       model,
       messages,
       tools: tools.length ? tools : undefined,
       tool_choice: tools.length ? toolChoice : undefined,
       temperature,
-      max_tokens: options.maxTokens,
+      max_tokens: maxTokens,
       conversation_id: options.conversationId ?? null,
       memory_enabled: options.memoryEnabled,
       memory_debug: options.memoryDebug,
@@ -652,22 +777,63 @@ const normalizeContent = (content?: string | GrokMessageContent[]): string => {
     .join("");
 };
 
+const postAssistantGateway = async (
+  accessToken: string,
+  payload: Record<string, unknown>,
+  signal?: AbortSignal
+) => {
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const baseUrl = getKiaraBaseUrl();
+
+  const headers = {
+    "Content-Type": "application/json",
+    ...(anonKey ? { apikey: anonKey } : {}),
+    Authorization: `Bearer ${accessToken}`,
+  };
+
+  const gatewayResponse = await fetch(`${baseUrl}/kiara-intelligence`, {
+    method: "POST",
+    headers,
+    signal,
+    body: JSON.stringify({
+      route: "assistant",
+      action: "chat",
+      payload,
+    }),
+  });
+
+  // Compatibility fallback if gateway is not deployed yet.
+  if (gatewayResponse.status === 404) {
+    return fetch(`${baseUrl}/kiara-grok`, {
+      method: "POST",
+      headers,
+      signal,
+      body: JSON.stringify(payload),
+    });
+  }
+
+  if (gatewayResponse.status === 400 || gatewayResponse.status === 422) {
+    const errorText = await gatewayResponse.clone().text().catch(() => "");
+    if (/unsupported route|unsupported assistant action/i.test(errorText)) {
+      return fetch(`${baseUrl}/kiara-grok`, {
+        method: "POST",
+        headers,
+        signal,
+        body: JSON.stringify(payload),
+      });
+    }
+  }
+
+  return gatewayResponse;
+};
+
 const grokRequest = async (body: Record<string, any>) => {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) {
     throw new Error("Not authenticated");
   }
 
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const response = await fetch(`${getKiaraBaseUrl()}/kiara-grok`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "apikey": anonKey,
-      "Authorization": `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const response = await postAssistantGateway(session.access_token, body);
 
   if (!response.ok) {
     const errorText = await response.text();

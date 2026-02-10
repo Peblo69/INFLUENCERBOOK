@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback, memo } from "react";
 import {
   streamMessageToGrok,
+  sendMessageToGrok,
   type GrokAttachment,
   type GrokMemoryTelemetry,
 } from "@/services/grokService";
@@ -90,21 +91,41 @@ interface ChatAreaProps {
   onSaveMessage: (conversationId: string, message: Message) => Promise<void>;
   refreshConversations: () => Promise<void>;
   isStreamingRef: React.MutableRefObject<boolean>;
+  onStreamSettled: () => void;
 }
 
 type AssistantRuntimeSettings = {
   model: string;
   temperature: number;
   maxTokens: number;
+  webSearchEnabled: boolean;
+  knowledgeBaseEnabled: boolean;
+  customInstructions: string;
+  streamResponse: boolean;
   memoryEnabled: boolean;
   reasoningMode: boolean;
   memoryDebug: boolean;
 };
 
+const NON_THINKING_MODEL = "grok-4";
+
+const normalizeAssistantModel = (value: unknown): string => {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return NON_THINKING_MODEL;
+  if (raw.includes("reason")) return NON_THINKING_MODEL;
+  if (raw === "grok-4.1" || raw === "grok-4-1") return NON_THINKING_MODEL;
+  if (raw === "grok-4-fast") return NON_THINKING_MODEL;
+  return raw.startsWith("grok-4") ? NON_THINKING_MODEL : NON_THINKING_MODEL;
+};
+
 const DEFAULT_ASSISTANT_SETTINGS: AssistantRuntimeSettings = {
-  model: "grok-4-fast",
+  model: NON_THINKING_MODEL,
   temperature: 0.7,
   maxTokens: 4096,
+  webSearchEnabled: true,
+  knowledgeBaseEnabled: true,
+  customInstructions: "",
+  streamResponse: true,
   memoryEnabled: true,
   reasoningMode: false,
   memoryDebug: true,
@@ -124,13 +145,14 @@ const ConfigModal = ({ isOpen, onClose, settings, onSave, saving }: ConfigModalP
     model: settings.model,
     temperature: settings.temperature,
     maxTokens: settings.maxTokens,
-    webSearch: true,
+    webSearch: settings.webSearchEnabled,
     memoryEnabled: settings.memoryEnabled,
     autoSave: true,
-    streamResponse: true,
+    streamResponse: settings.streamResponse,
+    customInstructions: settings.customInstructions,
     codeHighlight: true,
     imageGeneration: true,
-    knowledgeBase: true,
+    knowledgeBase: settings.knowledgeBaseEnabled,
     reasoningMode: settings.reasoningMode,
     memoryDebug: settings.memoryDebug,
   });
@@ -142,6 +164,10 @@ const ConfigModal = ({ isOpen, onClose, settings, onSave, saving }: ConfigModalP
       model: settings.model,
       temperature: settings.temperature,
       maxTokens: settings.maxTokens,
+      webSearch: settings.webSearchEnabled,
+      streamResponse: settings.streamResponse,
+      customInstructions: settings.customInstructions,
+      knowledgeBase: settings.knowledgeBaseEnabled,
       memoryEnabled: settings.memoryEnabled,
       reasoningMode: settings.reasoningMode,
       memoryDebug: settings.memoryDebug,
@@ -223,6 +249,8 @@ const ConfigModal = ({ isOpen, onClose, settings, onSave, saving }: ConfigModalP
                   <textarea
                     className="w-full h-28 bg-black/30 border border-white/[0.06] rounded-xl p-4 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-white/20 focus:bg-black/40 resize-none transition-all duration-200"
                     placeholder="How should Kiara behave? For example: 'Be concise and direct', 'Always provide code examples', or 'Act as a creative director'..."
+                    value={draft.customInstructions}
+                    onChange={(e) => setDraft((s) => ({ ...s, customInstructions: e.target.value }))}
                   />
                   <p className="text-xs text-white/30">These instructions will be applied to every conversation</p>
                 </div>
@@ -265,9 +293,7 @@ const ConfigModal = ({ isOpen, onClose, settings, onSave, saving }: ConfigModalP
                   <label className="text-sm font-medium text-white/80">AI Model</label>
                   <div className="space-y-2">
                     {[
-                      { id: "grok-4-fast", name: "Grok 4 Fast", desc: "Fast responses, great for most tasks", tag: "Default" },
-                      { id: "grok-4", name: "Grok 4", desc: "Best quality, slower responses", tag: "Pro" },
-                      { id: "grok-reasoning", name: "Grok Reasoning", desc: "Step-by-step thinking for complex problems", tag: "Beta" },
+                      { id: "grok-4", name: "Grok 4.1", desc: "Non-thinking mode for faster direct replies", tag: "Default" },
                     ].map((model) => (
                       <button
                         key={model.id}
@@ -323,13 +349,14 @@ const ConfigModal = ({ isOpen, onClose, settings, onSave, saving }: ConfigModalP
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-white/80">Reasoning Mode</span>
-                        <span className="px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-purple-500/20 text-purple-300/70 rounded">Beta</span>
+                        <span className="px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-emerald-500/20 text-emerald-300/70 rounded">Disabled</span>
                       </div>
-                      <p className="text-xs text-white/40 mt-1">Show step-by-step thinking process</p>
+                      <p className="text-xs text-white/40 mt-1">Locked off to keep responses fast and non-thinking on Grok 4.1</p>
                     </div>
                     <Switch 
-                      checked={draft.reasoningMode}
-                      onChange={() => setDraft(s => ({ ...s, reasoningMode: !s.reasoningMode }))}
+                      checked={false}
+                      onChange={() => {}}
+                      disabled
                     />
                   </div>
                 </div>
@@ -445,11 +472,15 @@ const ConfigModal = ({ isOpen, onClose, settings, onSave, saving }: ConfigModalP
               onClick={async () => {
                 try {
                   await onSave({
-                    model: draft.model,
+                    model: normalizeAssistantModel(draft.model),
                     temperature: draft.temperature,
                     maxTokens: draft.maxTokens,
+                    webSearchEnabled: draft.webSearch,
+                    knowledgeBaseEnabled: draft.knowledgeBase,
+                    customInstructions: draft.customInstructions,
+                    streamResponse: draft.streamResponse,
                     memoryEnabled: draft.memoryEnabled,
-                    reasoningMode: draft.reasoningMode,
+                    reasoningMode: false,
                     memoryDebug: draft.memoryDebug,
                   });
                   onClose();
@@ -679,6 +710,7 @@ export const ChatArea = ({
   onSaveMessage,
   refreshConversations,
   isStreamingRef,
+  onStreamSettled,
 }: ChatAreaProps) => {
   const [showConfig, setShowConfig] = useState(false);
   const [input, setInput] = useState("");
@@ -721,10 +753,14 @@ export const ChatArea = ({
         const ai = (prefs.ai_settings ?? {}) as Record<string, any>;
 
         setAssistantSettings((prev) => ({
-          model: typeof ai.model === "string" ? ai.model : prev.model,
+          model: normalizeAssistantModel(typeof ai.model === "string" ? ai.model : prev.model),
           temperature: typeof ai.temperature === "number" ? ai.temperature : prev.temperature,
           maxTokens: typeof ai.max_tokens === "number" ? ai.max_tokens : prev.maxTokens,
-          reasoningMode: typeof ai.reasoning_mode === "boolean" ? ai.reasoning_mode : prev.reasoningMode,
+          webSearchEnabled: typeof ai.web_search_enabled === "boolean" ? ai.web_search_enabled : prev.webSearchEnabled,
+          knowledgeBaseEnabled: typeof ai.knowledge_base_enabled === "boolean" ? ai.knowledge_base_enabled : prev.knowledgeBaseEnabled,
+          customInstructions: typeof ai.custom_instructions === "string" ? ai.custom_instructions : prev.customInstructions,
+          streamResponse: typeof ai.stream_response === "boolean" ? ai.stream_response : prev.streamResponse,
+          reasoningMode: false,
           memoryDebug: typeof ai.memory_debug === "boolean" ? ai.memory_debug : prev.memoryDebug,
           memoryEnabled: typeof prefs.memory_enabled === "boolean" ? prefs.memory_enabled : prev.memoryEnabled,
         }));
@@ -756,10 +792,14 @@ export const ChatArea = ({
         memory_enabled: next.memoryEnabled,
         ai_settings: {
           ...(currentPreferences.ai_settings ?? {}),
-          model: next.model,
+          model: normalizeAssistantModel(next.model),
           temperature: next.temperature,
           max_tokens: next.maxTokens,
-          reasoning_mode: next.reasoningMode,
+          web_search_enabled: next.webSearchEnabled,
+          knowledge_base_enabled: next.knowledgeBaseEnabled,
+          custom_instructions: next.customInstructions,
+          stream_response: next.streamResponse,
+          reasoning_mode: false,
           memory_debug: next.memoryDebug,
           updated_at: new Date().toISOString(),
         },
@@ -771,7 +811,11 @@ export const ChatArea = ({
         .eq("id", user.id);
 
       if (updateError) throw updateError;
-      setAssistantSettings(next);
+      setAssistantSettings({
+        ...next,
+        model: normalizeAssistantModel(next.model),
+        reasoningMode: false,
+      });
     } finally {
       setSettingsSaving(false);
     }
@@ -912,106 +956,255 @@ export const ChatArea = ({
 
     onSaveMessage(activeConversationId, userMsg).catch(console.error);
 
-    streamingContentRef.current = "";
-    currentStreamIdRef.current = aiMsgId;
-    startRenderLoop();
-
     const historyForApi = messages.map((m) => ({
       role: m.role,
       content: m.content,
       attachments: m.attachments,
     }));
 
-    const finalPrompt = assistantSettings.reasoningMode ? `[REASONING MODE] ${userContent}` : userContent;
+    const finalPrompt = userContent;
+    const shouldUseWebSearch =
+      activeTool === "web"
+        ? true
+        : assistantSettings.webSearchEnabled
+          ? undefined
+          : false;
+    const grokOptions = {
+      conversationId: activeConversationId,
+      model: normalizeAssistantModel(assistantSettings.model),
+      temperature: assistantSettings.temperature,
+      maxTokens: assistantSettings.maxTokens,
+      memoryEnabled: assistantSettings.memoryEnabled,
+      memoryDebug: assistantSettings.memoryDebug,
+      webSearchEnabled: shouldUseWebSearch,
+      knowledgeBaseEnabled: assistantSettings.knowledgeBaseEnabled,
+      customInstructions: assistantSettings.customInstructions,
+    };
+    let streamFallbackAttempted = false;
 
-    await streamMessageToGrok(
-      historyForApi,
-      finalPrompt,
-      userAttachments,
-      {
-        onToken: (token) => {
-          if (currentStreamIdRef.current !== aiMsgId) return;
-          streamingContentRef.current += token;
-        },
-        onMeta: (meta) => {
-          if (meta.memory) {
-            setMemoryTelemetry(meta.memory);
-          }
-        },
-        onComplete: async (fullText) => {
-          if (currentStreamIdRef.current !== aiMsgId) return;
+    const finalizeStreamFailure = (message: string, partialContent: string) => {
+      const errorMessage = partialContent
+        ? `${partialContent}\n\nError: ${message}`
+        : `Error: ${message}. Please try again.`;
 
-          const finalContent = fullText || streamingContentRef.current || "";
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === aiMsgId
+            ? { ...msg, content: errorMessage }
+            : msg
+        )
+      );
+      setIsLoading(false);
+      setStreamingMessageId(null);
+      currentStreamIdRef.current = null;
+      sendLockRef.current = false;
+      isStreamingRef.current = false;
+      onStreamSettled();
+    };
 
-          // ─── CRITICAL FIX ───
-          // 1. Flush final content into state IMMEDIATELY (synchronous).
-          //    This replaces whatever partial content the render loop last wrote.
-          //    Previously, stopRenderLoop() + await DB save created a visible gap
-          //    where stale/partial content was displayed.
-          flushRenderLoop(aiMsgId, finalContent);
-
-          // 2. Clear streaming state in the SAME tick as the content update.
-          //    React batches these setState calls, so the UI transitions from
-          //    "streaming with partial content" → "done with full content"
-          //    in a single render. No flash frame.
-          setStreamingMessageId(null);
-          setIsLoading(false);
-          currentStreamIdRef.current = null;
-          sendLockRef.current = false;
-          isStreamingRef.current = false;
-
-          // 3. Show completion animation
-          setJustFinishedId(aiMsgId);
-          setTimeout(() => setJustFinishedId(null), 2500);
-          setTimeout(() => textareaRef.current?.focus(), 100);
-
-          // 4. DB save happens AFTER UI is already correct — fire and forget.
-          //    The user sees the complete response immediately regardless of
-          //    network latency to Supabase.
-          const finalAiMsg: Message = {
-            id: aiMsgId,
-            role: "assistant",
-            content: finalContent,
-          };
-
-          onSaveMessage(activeConversationId, finalAiMsg)
-            .then(() => refreshConversations())
-            .catch((error) => {
-              console.error("Failed to save AI message:", error);
-            });
-        },
-        onError: (error) => {
-          if (currentStreamIdRef.current !== aiMsgId) return;
-          stopRenderLoop();
-          console.error("Stream error:", error);
-          const partialContent = streamingContentRef.current;
-          const errorMessage = partialContent
-            ? `${partialContent}\n\nError: ${error.message}`
-            : `Error: ${error.message}. Please try again.`;
-
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === aiMsgId
-                ? { ...msg, content: errorMessage }
-                : msg
-            )
-          );
-          setIsLoading(false);
-          setStreamingMessageId(null);
-          currentStreamIdRef.current = null;
-          sendLockRef.current = false;
-          isStreamingRef.current = false;
-        },
-      },
-      {
-        conversationId: activeConversationId,
-        model: assistantSettings.model,
-        temperature: assistantSettings.temperature,
-        maxTokens: assistantSettings.maxTokens,
-        memoryEnabled: assistantSettings.memoryEnabled,
-        memoryDebug: assistantSettings.memoryDebug,
+    const tryNonStreamingFallback = async (sourceError: Error) => {
+      const partialContent = streamingContentRef.current;
+      if (streamFallbackAttempted) {
+        finalizeStreamFailure(sourceError.message, partialContent);
+        return;
       }
-    );
+
+      streamFallbackAttempted = true;
+      setStreamingMessageId(null);
+      currentStreamIdRef.current = null;
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === aiMsgId
+            ? {
+              ...msg,
+              content: partialContent
+                ? `${partialContent}\n\nConnection issue detected. Retrying once...`
+                : "Connection issue detected. Retrying once...",
+            }
+            : msg
+        )
+      );
+
+      try {
+        const fallbackResult = await sendMessageToGrok(
+          historyForApi,
+          finalPrompt,
+          userAttachments,
+          {
+            ...grokOptions,
+            webSearchEnabled: false,
+          }
+        );
+
+        const finalContent = fallbackResult.text || "";
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === aiMsgId
+              ? {
+                ...msg,
+                content: finalContent,
+                images: fallbackResult.images && fallbackResult.images.length > 0 ? fallbackResult.images : undefined,
+              }
+              : msg
+          )
+        );
+
+        const finalAiMsg: Message = {
+          id: aiMsgId,
+          role: "assistant",
+          content: finalContent,
+          images: fallbackResult.images && fallbackResult.images.length > 0 ? fallbackResult.images : undefined,
+        };
+
+        onSaveMessage(activeConversationId, finalAiMsg)
+          .then(() => refreshConversations())
+          .catch((saveError) => {
+            console.error("Failed to save fallback AI message:", saveError);
+          });
+        setJustFinishedId(aiMsgId);
+        setTimeout(() => setJustFinishedId(null), 2500);
+      } catch (fallbackError) {
+        const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        finalizeStreamFailure(fallbackMessage, partialContent);
+        return;
+      }
+
+      setIsLoading(false);
+      sendLockRef.current = false;
+      isStreamingRef.current = false;
+      onStreamSettled();
+      setTimeout(() => textareaRef.current?.focus(), 100);
+    };
+
+    if (assistantSettings.streamResponse) {
+      streamingContentRef.current = "";
+      currentStreamIdRef.current = aiMsgId;
+      startRenderLoop();
+
+      try {
+        await streamMessageToGrok(
+          historyForApi,
+          finalPrompt,
+          userAttachments,
+          {
+            onToken: (token) => {
+              if (currentStreamIdRef.current !== aiMsgId) return;
+              streamingContentRef.current += token;
+            },
+            onMeta: (meta) => {
+              if (meta.memory) {
+                setMemoryTelemetry(meta.memory);
+              }
+            },
+            onComplete: async (fullText, images) => {
+              if (currentStreamIdRef.current !== aiMsgId) return;
+
+              const finalContent = fullText || streamingContentRef.current || "";
+              flushRenderLoop(aiMsgId, finalContent);
+              setStreamingMessageId(null);
+              setIsLoading(false);
+              currentStreamIdRef.current = null;
+              sendLockRef.current = false;
+              isStreamingRef.current = false;
+              setJustFinishedId(aiMsgId);
+              setTimeout(() => setJustFinishedId(null), 2500);
+              setTimeout(() => textareaRef.current?.focus(), 100);
+              onStreamSettled();
+
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === aiMsgId
+                    ? { ...msg, content: finalContent, images: images && images.length > 0 ? images : msg.images }
+                    : msg
+                )
+              );
+
+              const finalAiMsg: Message = {
+                id: aiMsgId,
+                role: "assistant",
+                content: finalContent,
+                images: images && images.length > 0 ? images : undefined,
+              };
+
+              onSaveMessage(activeConversationId, finalAiMsg)
+                .then(() => refreshConversations())
+                .catch((error) => {
+                  console.error("Failed to save AI message:", error);
+                });
+            },
+            onError: (error) => {
+              if (currentStreamIdRef.current !== aiMsgId) return;
+              stopRenderLoop();
+              console.error("Stream error:", error);
+              void tryNonStreamingFallback(error);
+            },
+          },
+          grokOptions
+        );
+      } catch (error) {
+        stopRenderLoop();
+        const streamError = error instanceof Error ? error : new Error(String(error));
+        await tryNonStreamingFallback(streamError);
+      }
+      return;
+    }
+
+    stopRenderLoop();
+    currentStreamIdRef.current = null;
+    streamingContentRef.current = "";
+
+    try {
+      const result = await sendMessageToGrok(
+        historyForApi,
+        finalPrompt,
+        userAttachments,
+        grokOptions
+      );
+
+      const finalContent = result.text || "";
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === aiMsgId
+            ? {
+              ...msg,
+              content: finalContent,
+              images: result.images && result.images.length > 0 ? result.images : undefined,
+            }
+            : msg
+        )
+      );
+
+      const finalAiMsg: Message = {
+        id: aiMsgId,
+        role: "assistant",
+        content: finalContent,
+        images: result.images && result.images.length > 0 ? result.images : undefined,
+      };
+
+      onSaveMessage(activeConversationId, finalAiMsg)
+        .then(() => refreshConversations())
+        .catch((error) => {
+          console.error("Failed to save AI message:", error);
+        });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === aiMsgId
+            ? { ...msg, content: `Error: ${message}. Please try again.` }
+            : msg
+        )
+      );
+    } finally {
+      setIsLoading(false);
+      setStreamingMessageId(null);
+      currentStreamIdRef.current = null;
+      sendLockRef.current = false;
+      isStreamingRef.current = false;
+      onStreamSettled();
+      setTimeout(() => textareaRef.current?.focus(), 100);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1198,25 +1391,21 @@ export const ChatArea = ({
 
             {/* Main Glass Input Container */}
             <div className="relative">
-              {/* Animated gradient border glow */}
-              <div className="absolute -inset-[1px] rounded-3xl bg-gradient-to-r from-purple-500/20 via-pink-500/20 via-blue-500/20 to-purple-500/20 opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-sm" />
-              
-              {/* Glass container */}
-              <div className="relative rounded-3xl overflow-hidden">
-                {/* Background layers */}
-                <div className="absolute inset-0 bg-gradient-to-b from-white/[0.08] to-white/[0.02]" />
-                <div className="absolute inset-0 backdrop-blur-xl" />
-                <div className="absolute inset-0 bg-black/40" />
-                
-                {/* Border */}
-                <div className="absolute inset-0 rounded-3xl border border-white/[0.08] group-focus-within:border-white/[0.15] transition-colors duration-300" />
-                
-                {/* Inner shadow for depth */}
-                <div className="absolute inset-0 rounded-3xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.05),inset_0_-1px_1px_rgba(0,0,0,0.2)]" />
+              {/* Glass Container */}
+              <div 
+                className="relative rounded-3xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.2)',
+                  backdropFilter: 'blur(8.5px)',
+                  WebkitBackdropFilter: 'blur(8.5px)',
+                  border: '1px solid rgba(255, 255, 255, 0.3)'
+                }}
+              >
                 
                 {/* Content */}
-                <div className="relative p-1">
-                  {/* Textarea */}
+                <div className="relative">
+                  {/* Textarea - extra bottom padding for buttons */}
                   <textarea 
                     ref={textareaRef} 
                     value={input} 
@@ -1224,22 +1413,22 @@ export const ChatArea = ({
                     onKeyDown={handleKeyDown} 
                     placeholder="Ask Kiara anything..." 
                     rows={1} 
-                    className="w-full bg-transparent text-white/90 text-[15px] px-4 py-4 outline-none placeholder:text-white/30 placeholder:font-light resize-none overflow-y-auto scrollbar-hide leading-relaxed"
+                    className="w-full bg-transparent text-white/90 text-[15px] px-4 pt-4 pb-14 outline-none placeholder:text-white/30 placeholder:font-light resize-none overflow-y-auto scrollbar-hide leading-relaxed"
                     style={{ minHeight: "56px", maxHeight: "200px" }} 
                     autoFocus 
                   />
                   <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*" multiple className="hidden" />
 
-                  {/* Toolbar */}
-                  <div className="flex items-center justify-between px-2 pb-2">
+                  {/* Buttons positioned at the bottom */}
+                  <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between">
                     {/* Left Tools */}
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-0.5">
                       {([
-                        { id: "plus", icon: Plus, label: "Tools", color: "from-purple-400 to-pink-400", action: () => setActiveTool(activeTool === "plus" ? null : "plus") },
-                        { id: "attach", icon: Paperclip, label: "Attach", color: "from-blue-400 to-cyan-400", action: () => { fileInputRef.current?.click(); } },
-                        { id: "mic", icon: Mic, label: "Voice", color: "from-emerald-400 to-teal-400", action: () => setActiveTool(activeTool === "mic" ? null : "mic") },
-                        { id: "web", icon: Globe, label: "Web", color: "from-orange-400 to-amber-400", action: () => setActiveTool(activeTool === "web" ? null : "web") },
-                      ] as const).map(({ id, icon: Icon, label, color, action }) => {
+                        { id: "plus", icon: Plus, label: "Tools", action: () => setActiveTool(activeTool === "plus" ? null : "plus") },
+                        { id: "attach", icon: Paperclip, label: "Attach", action: () => { fileInputRef.current?.click(); } },
+                        { id: "mic", icon: Mic, label: "Voice", action: () => setActiveTool(activeTool === "mic" ? null : "mic") },
+                        { id: "web", icon: Globe, label: "Web", action: () => setActiveTool(activeTool === "web" ? null : "web") },
+                      ] as const).map(({ id, icon: Icon, label, action }) => {
                         const isOn = activeTool === id;
                         return (
                           <button
@@ -1248,15 +1437,11 @@ export const ChatArea = ({
                             onClick={action}
                             className="group/btn relative"
                           >
-                            {/* Subtle indicator when active */}
-                            {isOn && (
-                              <div className="absolute inset-0 rounded-xl bg-white/[0.08] border border-white/20" />
-                            )}
-                            <div className={`relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 ${isOn ? "text-white/90" : "text-white/40 hover:text-white/70 hover:bg-white/[0.05]"}`}>
-                              <Icon size={17} strokeWidth={1.5} />
+                            <div className={`relative w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 ${isOn ? "bg-white/[0.1] text-white" : "text-white/30 hover:text-white/60 hover:bg-white/[0.05]"}`}>
+                              <Icon size={16} strokeWidth={1.5} />
                             </div>
                             {/* Tooltip */}
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black/80 backdrop-blur-md border border-white/10 rounded-lg text-[10px] text-white/70 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-black/90 backdrop-blur-md border border-white/10 rounded-md text-[10px] text-white/70 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
                               {label}
                             </div>
                           </button>
@@ -1265,30 +1450,27 @@ export const ChatArea = ({
                     </div>
 
                     {/* Right Actions */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-0.5">
                       {/* Settings */}
                       <button 
                         type="button" 
                         onClick={() => setShowConfig(true)} 
-                        className="w-9 h-9 rounded-xl flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all duration-300 group/cfg"
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/70 hover:bg-white/[0.05] transition-all duration-200 group/cfg"
                       >
-                        <Settings size={17} strokeWidth={1.5} className="transition-transform duration-700 ease-out group-hover/cfg:rotate-90" />
+                        <Settings size={16} strokeWidth={1.5} className="transition-transform duration-700 ease-out group-hover/cfg:rotate-90" />
                       </button>
                       
-                      {/* Send Button - Soft Elegant Style */}
+                      {/* Send Button */}
                       <button 
                         type="submit" 
                         disabled={(!input.trim() && attachments.length === 0) || isLoading}
-                        className="group/send relative disabled:opacity-30 disabled:cursor-not-allowed"
+                        className="group/send relative disabled:opacity-30 disabled:cursor-not-allowed ml-1"
                       >
-                        {/* Soft glow effect - only when has content */}
-                        <div className={`absolute inset-0 rounded-xl bg-white/20 blur-md transition-opacity duration-300 ${input.trim() || attachments.length > 0 ? "opacity-0 group-hover/send:opacity-100" : "opacity-0"}`} />
-                        
-                        <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 border ${input.trim() || attachments.length > 0 ? "bg-white/[0.08] border-white/20 text-white/90 group-hover/send:bg-white/[0.15] group-hover/send:border-white/30 group-hover/send:text-white group-hover/send:scale-105" : "bg-transparent border-white/[0.06] text-white/20"}`}>
+                        <div className={`relative w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 ${input.trim() || attachments.length > 0 ? "bg-white text-black hover:scale-105" : "bg-white/[0.06] text-white/30"}`}>
                           {isLoading ? (
-                            <div className="w-4 h-4 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+                            <div className="w-3.5 h-3.5 border-2 border-black/20 border-t-black/80 rounded-full animate-spin" />
                           ) : (
-                            <ArrowUpRight size={18} strokeWidth={2} className="transition-transform duration-300 group-hover/send:-translate-y-0.5 group-hover/send:translate-x-0.5" />
+                            <ArrowUpRight size={16} strokeWidth={2.5} className="transition-transform duration-200 group-hover/send:-translate-y-0.5 group-hover/send:translate-x-0.5" />
                           )}
                         </div>
                       </button>

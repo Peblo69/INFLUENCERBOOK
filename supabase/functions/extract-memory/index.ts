@@ -246,7 +246,7 @@ serve(async (req) => {
     }
 
     const filteredConversation = conversationMessages
-      .filter((m) => (m.role === "user" || m.role === "assistant") && normalizeMessageContent(m.content).trim().length > 0)
+      .filter((m) => m.role === "user" && normalizeMessageContent(m.content).trim().length > 0)
       .map((m) => ({ role: m.role, content: normalizeMessageContent(m.content) }))
       .slice(-24);
 

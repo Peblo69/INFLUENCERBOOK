@@ -95,6 +95,11 @@ export type UserProfile = {
   plan_started_at: string | null;
   current_period_end: string | null;
   trial_ends_at: string | null;
+  is_admin: boolean;
+  is_suspended: boolean;
+  suspension_reason: string | null;
+  suspended_at: string | null;
+  last_seen_at: string | null;
   billing_metadata: Record<string, any> | null;
   preferences: ProfilePreferences | null;
   created_at: string;

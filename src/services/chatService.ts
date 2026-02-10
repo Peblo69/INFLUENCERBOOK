@@ -63,7 +63,7 @@ export interface ListMessagesOptions {
   ascending?: boolean;
 }
 
-const DEFAULT_MODEL = "grok-4-latest";
+const DEFAULT_MODEL = "grok-4";
 
 const requireUserId = async (): Promise<string> => {
   const { data: { user } } = await supabase.auth.getUser();

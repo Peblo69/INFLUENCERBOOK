@@ -20,17 +20,32 @@ const RUNNINGHUB_POLL_TIMEOUT_MS = Number(Deno.env.get("RUNNINGHUB_POLL_TIMEOUT_
 const SIGNED_URL_TTL = Number(Deno.env.get("KIARA_SIGNED_URL_TTL_SECONDS") ?? "86400");
 const RATE_LIMIT_WINDOW_SECONDS = Number(Deno.env.get("KIARA_RATE_LIMIT_WINDOW_SECONDS") ?? "60");
 const RATE_LIMIT_MAX_REQUESTS = Number(Deno.env.get("KIARA_RATE_LIMIT_MAX_REQUESTS") ?? "20");
+const KIARA_ALLOW_LOCALHOST =
+  (Deno.env.get("KIARA_ALLOW_LOCALHOST") ?? "true").toLowerCase() !== "false";
+
+const normalizeOrigin = (value: string) =>
+  String(value || "").trim().replace(/\/+$/, "").toLowerCase();
 
 const allowedOrigins = (Deno.env.get("KIARA_ALLOWED_ORIGINS") ?? "")
   .split(",")
-  .map((origin) => origin.trim())
+  .map((origin) => normalizeOrigin(origin))
   .filter(Boolean);
 
-const isOriginAllowed = (origin: string) =>
-  allowedOrigins.length === 0 || allowedOrigins.includes(origin);
+const isLocalDevOrigin = (origin: string) =>
+  origin.startsWith("http://localhost:") ||
+  origin.startsWith("https://localhost:") ||
+  origin.startsWith("http://127.0.0.1:") ||
+  origin.startsWith("https://127.0.0.1:");
+
+const isOriginAllowed = (origin: string) => {
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return true;
+  if (KIARA_ALLOW_LOCALHOST && isLocalDevOrigin(normalized)) return true;
+  return allowedOrigins.length === 0 || allowedOrigins.includes(normalized);
+};
 
 const buildCorsHeaders = (origin: string) => ({
-  "Access-Control-Allow-Origin": allowedOrigins.length === 0 ? "*" : origin,
+  "Access-Control-Allow-Origin": allowedOrigins.length === 0 ? "*" : origin || "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 });
@@ -1005,8 +1020,31 @@ serve(async (req) => {
     );
   }
 
+  const { data: userProfile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("is_suspended, suspension_reason")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    return new Response(
+      JSON.stringify({ error: "Failed to validate account status" }),
+      { status: 500, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+    );
+  }
+
+  if (userProfile?.is_suspended) {
+    return new Response(
+      JSON.stringify({
+        error: "Account suspended",
+        reason: userProfile?.suspension_reason || null,
+      }),
+      { status: 403, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+    );
+  }
+
   const body = await req.json();
-  const prompt = body.prompt;
+  let prompt = body.prompt;
   const referenceImages: string[] = Array.isArray(body.reference_image_urls)
     ? body.reference_image_urls
     : Array.isArray(body.reference_images)
@@ -1020,7 +1058,17 @@ serve(async (req) => {
     rh_lora_name: string;
     strength_model?: number;
     lora_node_id?: string;
+    trigger_word?: string;
   } | undefined;
+
+  // Auto-inject LoRA trigger word into prompt if not already present
+  if (loraConfig?.trigger_word && prompt) {
+    const tw = loraConfig.trigger_word.trim();
+    if (tw && !prompt.includes(tw)) {
+      prompt = `${tw} , ${prompt}`;
+      console.log("[kiara-generate] Prepended LoRA trigger word:", tw);
+    }
+  }
 
   if (!prompt) {
     return new Response(

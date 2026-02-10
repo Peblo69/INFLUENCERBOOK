@@ -150,7 +150,24 @@ export async function executeToolCall(
           const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
           const baseUrl = import.meta.env.VITE_SUPABASE_URL || "";
 
-          const searchResponse = await fetch(`${baseUrl}/functions/v1/kiara-grok`, {
+          const searchPayload = {
+            model: "grok-4-fast",
+            messages: [
+              {
+                role: "system",
+                content: "You are a web search assistant. Search the web and provide accurate, up-to-date information. Focus on recent and relevant results. Format the information clearly."
+              },
+              {
+                role: "user",
+                content: `Search the web for: ${query}\n\nProvide the most relevant and recent information you find. Include sources when possible.`
+              }
+            ],
+            search: true, // Enable Grok's web search
+            temperature: 0.3,
+            max_tokens: 2000
+          };
+
+          let searchResponse = await fetch(`${baseUrl}/functions/v1/kiara-intelligence`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -158,22 +175,23 @@ export async function executeToolCall(
               "Authorization": `Bearer ${session.access_token}`,
             },
             body: JSON.stringify({
-              model: "grok-4-latest",
-              messages: [
-                {
-                  role: "system",
-                  content: "You are a web search assistant. Search the web and provide accurate, up-to-date information. Focus on recent and relevant results. Format the information clearly."
-                },
-                {
-                  role: "user",
-                  content: `Search the web for: ${query}\n\nProvide the most relevant and recent information you find. Include sources when possible.`
-                }
-              ],
-              search: true, // Enable Grok's web search
-              temperature: 0.3,
-              max_tokens: 2000
+              route: "assistant",
+              action: "chat",
+              payload: searchPayload,
             }),
           });
+
+          if (searchResponse.status === 404) {
+            searchResponse = await fetch(`${baseUrl}/functions/v1/kiara-grok`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "apikey": anonKey,
+                "Authorization": `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify(searchPayload),
+            });
+          }
 
           if (!searchResponse.ok) {
             throw new Error(`Search API error: ${searchResponse.status}`);

@@ -20,6 +20,12 @@ import {
   Zap,
   ZoomIn,
   ZoomOut,
+  Wand2,
+  Sparkles,
+  Grid3X3,
+  Type,
+  Palette,
+  Move,
 } from "lucide-react";
 import { useI18n } from "@/contexts/I18nContext";
 import { kiaraInpaint } from "@/services/kiaraGateway";
@@ -31,15 +37,15 @@ const inpaintStyles = `
   }
 
   .bg-gradient-brand {
-    background-image: linear-gradient(90deg, #fbcfe8 0%, #c084fc 50%, #818cf8 100%);
+    background-image: linear-gradient(135deg, #c084fc 0%, #818cf8 50%, #60a5fa 100%);
   }
 
   .bg-gradient-brand-hover {
-    background-image: linear-gradient(90deg, #f9a8d4 0%, #a78bfa 50%, #6366f1 100%);
+    background-image: linear-gradient(135deg, #a78bfa 0%, #6366f1 50%, #3b82f6 100%);
   }
 
   .custom-scrollbar::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
   }
 
   .custom-scrollbar::-webkit-scrollbar-track {
@@ -47,8 +53,141 @@ const inpaintStyles = `
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.08);
     border-radius: 999px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.15);
+  }
+
+  .glass-panel {
+    background: rgba(8, 8, 8, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 
+      0 8px 32px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .glass-panel-hover:hover {
+    background: rgba(12, 12, 12, 0.9);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .tool-btn {
+    position: relative;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .tool-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .tool-btn:hover::before {
+    opacity: 1;
+  }
+
+  .tool-btn.active {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 0 20px rgba(192, 132, 252, 0.15);
+  }
+
+  .tool-btn.active::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 16px;
+    background: linear-gradient(180deg, #c084fc 0%, #818cf8 100%);
+    border-radius: 0 3px 3px 0;
+  }
+
+  .section-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .slider-track {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    outline: none;
+  }
+
+  .slider-track::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: linear-gradient(135deg, #c084fc 0%, #818cf8 100%);
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid rgba(8, 8, 8, 0.9);
+    box-shadow: 0 0 10px rgba(192, 132, 252, 0.4);
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+
+  .slider-track::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+    box-shadow: 0 0 15px rgba(192, 132, 252, 0.6);
+  }
+
+  .generate-btn {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .generate-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.6s;
+  }
+
+  .generate-btn:hover::before {
+    transform: translateX(100%);
+  }
+
+  .layer-item {
+    transition: all 0.2s ease;
+  }
+
+  .layer-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .layer-item.active {
+    background: rgba(192, 132, 252, 0.08);
+    border: 1px solid rgba(192, 132, 252, 0.2);
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 5px rgba(192, 132, 252, 0.3); }
+    50% { box-shadow: 0 0 20px rgba(192, 132, 252, 0.5); }
+  }
+
+  .pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
   }
 `;
 
@@ -219,8 +358,8 @@ export const InpaintStudio = () => {
       ctx.globalCompositeOperation = "destination-out";
     } else {
       ctx.globalCompositeOperation = "source-over";
-      ctx.strokeStyle = `rgba(216, 180, 254, ${brushOpacity / 100})`;
-      ctx.fillStyle = `rgba(216, 180, 254, ${brushOpacity / 100})`;
+      ctx.strokeStyle = `rgba(192, 132, 252, ${brushOpacity / 100})`;
+      ctx.fillStyle = `rgba(192, 132, 252, ${brushOpacity / 100})`;
     }
 
     ctx.beginPath();
@@ -318,15 +457,16 @@ export const InpaintStudio = () => {
   }, [prompt]);
 
   return (
-    <div className="flex flex-col h-screen bg-[#030303] relative overflow-hidden select-none group font-sans">
+    <div className="flex flex-col h-screen bg-[#050505] relative overflow-hidden select-none group font-sans">
       <style>{inpaintStyles}</style>
 
+      {/* Background Grid Pattern */}
       <div
         className="absolute inset-0 pointer-events-none z-0"
         style={{
           backgroundImage: `
-            linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px)
+            linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px)
           `,
           backgroundSize: "40px 40px",
           backgroundPosition: `${pan.x % 40}px ${pan.y % 40}px`,
@@ -335,52 +475,66 @@ export const InpaintStudio = () => {
         <div
           className="absolute inset-0"
           style={{
-            backgroundImage: "radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px)",
+            backgroundImage: "radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px)",
             backgroundSize: "40px 40px",
             backgroundPosition: `${pan.x % 40}px ${pan.y % 40}px`,
           }}
         />
       </div>
 
+      {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 h-16 px-6 flex items-center justify-between z-30 pointer-events-none">
         <div className="pointer-events-auto flex items-center gap-3">
           {imageDimensions.w > 0 && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-lg shadow-xl ring-1 ring-white/5">
-              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-              <span className="text-[10px] font-bold text-zinc-300 font-display tracking-wider">{imageDimensions.w} x {imageDimensions.h}</span>
+            <div className="glass-panel rounded-xl px-4 py-2 flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 pulse-glow" />
+              <span className="text-[11px] font-semibold text-white/70 font-display tracking-wide">
+                {imageDimensions.w} × {imageDimensions.h}
+              </span>
             </div>
           )}
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-lg shadow-xl ring-1 ring-white/5 text-zinc-400 hover:text-white transition-colors"
+            className="glass-panel glass-panel-hover rounded-xl px-4 py-2 flex items-center gap-2.5 text-white/50 hover:text-white transition-all duration-200"
             title={imageSrc ? t("Change Image") : t("Upload Image")}
           >
-            <ImagePlus size={13} />
-            <span className="text-[10px] font-bold font-display tracking-wider">{imageSrc ? t("Change") : t("Upload")}</span>
+            <ImagePlus size={15} className="text-white/60" />
+            <span className="text-[11px] font-semibold tracking-wide">
+              {imageSrc ? t("Change") : t("Upload")}
+            </span>
           </button>
           {imageSrc && (
             <button
               onClick={handleDownload}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-lg shadow-xl ring-1 ring-white/5 text-zinc-400 hover:text-white transition-colors"
+              className="glass-panel glass-panel-hover rounded-xl px-4 py-2 flex items-center gap-2.5 text-white/50 hover:text-white transition-all duration-200"
               title={t("Download")}
             >
-              <Download size={13} />
-              <span className="text-[10px] font-bold font-display tracking-wider">{t("Save")}</span>
+              <Download size={15} className="text-white/60" />
+              <span className="text-[11px] font-semibold tracking-wide">{t("Save")}</span>
             </button>
           )}
         </div>
-        <div className="pointer-events-auto flex gap-1 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-lg p-1 shadow-xl ring-1 ring-white/5">
+
+        {/* Undo/Redo */}
+        <div className="pointer-events-auto glass-panel rounded-xl p-1 flex gap-0.5">
           <button
             onClick={handleUndo}
             disabled={!previousImageSrc}
-            className={`p-2 rounded-md hover:bg-white/5 transition-colors ${previousImageSrc ? 'text-zinc-400 hover:text-white' : 'text-zinc-700 cursor-not-allowed'}`}
+            className={`p-2.5 rounded-lg transition-all duration-200 ${
+              previousImageSrc 
+                ? 'text-white/50 hover:text-white hover:bg-white/5' 
+                : 'text-white/15 cursor-not-allowed'
+            }`}
             title={t("Undo")}
           >
-            <Undo size={14} />
+            <Undo size={16} />
           </button>
-          <div className="w-px h-auto bg-white/10 my-1" />
-          <button className="p-2 text-zinc-700 cursor-not-allowed rounded-md" title={t("Redo")}>
-            <Redo size={14} />
+          <div className="w-px bg-white/5 my-1.5" />
+          <button 
+            className="p-2.5 text-white/15 cursor-not-allowed rounded-lg" 
+            title={t("Redo")}
+          >
+            <Redo size={16} />
           </button>
         </div>
       </div>
@@ -399,66 +553,87 @@ export const InpaintStudio = () => {
 
       {/* Error toast */}
       {error && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-red-500/20 border border-red-500/30 rounded-lg backdrop-blur-md">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 bg-red-500/10 border border-red-500/20 rounded-xl backdrop-blur-xl">
           <span className="text-xs text-red-300 font-medium">{error}</span>
-          <button onClick={() => setError(null)} className="ml-3 text-red-400 hover:text-red-200 text-xs font-bold">✕</button>
+          <button 
+            onClick={() => setError(null)} 
+            className="ml-4 text-red-400 hover:text-red-200 text-xs font-bold transition-colors"
+          >
+            ✕
+          </button>
         </div>
       )}
 
+      {/* Left Toolbar */}
       <div className="absolute left-6 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5 bg-zinc-900/90 backdrop-blur-xl border border-white/10 p-1.5 rounded-xl shadow-2xl ring-1 ring-white/5">
+        {/* Main Tools */}
+        <div className="glass-panel rounded-2xl p-2 flex flex-col gap-1">
           <ToolButton
             active={tool === "select"}
             onClick={() => setTool("select")}
-            icon={<MousePointer2 size={18} />}
+            icon={<MousePointer2 size={18} strokeWidth={1.5} />}
             tooltip={t("Select (V)")}
           />
-          <div className="h-px w-full bg-white/5 mx-auto w-[80%]" />
+          <div className="h-px bg-white/5 mx-2 my-1" />
           <ToolButton
             active={tool === "brush"}
             onClick={() => setTool("brush")}
-            icon={<Brush size={18} />}
+            icon={<Brush size={18} strokeWidth={1.5} />}
             activeColor="text-purple-300"
             tooltip={t("Brush (B)")}
           />
           <ToolButton
             active={tool === "eraser"}
             onClick={() => setTool("eraser")}
-            icon={<Eraser size={18} />}
+            icon={<Eraser size={18} strokeWidth={1.5} />}
             activeColor="text-red-400"
             tooltip={t("Eraser (E)")}
           />
-          <div className="h-px w-full bg-white/5 mx-auto w-[80%]" />
+          <div className="h-px bg-white/5 mx-2 my-1" />
           <ToolButton
             active={tool === "pan"}
             onClick={() => setTool("pan")}
-            icon={<Hand size={18} />}
+            icon={<Hand size={18} strokeWidth={1.5} />}
             tooltip={t("Pan (Space)")}
           />
         </div>
 
-        <div className="flex flex-col gap-2 bg-zinc-900/90 backdrop-blur-xl border border-white/10 p-1.5 rounded-xl shadow-2xl ring-1 ring-white/5">
+        {/* Actions */}
+        <div className="glass-panel rounded-2xl p-2 flex flex-col gap-1">
           <ToolButton
             active={false}
             onClick={clearCanvas}
-            icon={<Trash2 size={18} />}
-            activeColor="text-red-500"
+            icon={<Trash2 size={18} strokeWidth={1.5} />}
+            activeColor="text-red-400"
             tooltip={t("Clear Mask")}
           />
         </div>
       </div>
 
-      <div className="absolute right-6 top-24 bottom-32 w-64 flex flex-col gap-3 pointer-events-none z-30">
-        <div className="pointer-events-auto bg-zinc-900/90 backdrop-blur-xl border border-white/10 rounded-xl p-4 shadow-2xl ring-1 ring-white/5 flex flex-col gap-5">
+      {/* Right Sidebar */}
+      <div className="absolute right-6 top-24 bottom-32 w-72 flex flex-col gap-4 pointer-events-none z-30">
+        {/* Brush Settings */}
+        <div className="pointer-events-auto glass-panel rounded-2xl p-5 flex flex-col gap-5">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest font-display">{t("Brush Settings")}</span>
-            <div className="w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_8px_rgba(216,180,254,0.5)]" />
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-white/[0.05] border border-white/[0.08] flex items-center justify-center">
+                <Palette size={14} className="text-purple-400" />
+              </div>
+              <span className="section-title">{t("Brush Settings")}</span>
+            </div>
+            <div className="w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_8px_rgba(192,132,252,0.6)]" />
           </div>
 
+          {/* Size */}
           <div className="space-y-3">
-            <div className="flex justify-between text-xs text-zinc-400">
-              <span className="flex items-center gap-1.5 font-medium"><Circle size={10} /> {t("Size")}</span>
-              <span className="font-mono text-[10px]">{brushSize}px</span>
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2 text-white/50">
+                <Circle size={12} />
+                <span className="text-[12px] font-medium">{t("Size")}</span>
+              </div>
+              <span className="text-[11px] font-mono text-white/40 bg-white/[0.05] px-2 py-0.5 rounded">
+                {brushSize}px
+              </span>
             </div>
             <input
               type="range"
@@ -466,14 +641,20 @@ export const InpaintStudio = () => {
               max="500"
               value={brushSize}
               onChange={(e) => setBrushSize(Number(e.target.value))}
-              className="w-full h-1 bg-zinc-800 rounded-full appearance-none accent-purple-400 cursor-pointer hover:accent-purple-300"
+              className="slider-track w-full"
             />
           </div>
 
+          {/* Hardness */}
           <div className="space-y-3">
-            <div className="flex justify-between text-xs text-zinc-400">
-              <span className="flex items-center gap-1.5 font-medium"><Sun size={10} /> {t("Hardness")}</span>
-              <span className="font-mono text-[10px]">{brushHardness}%</span>
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2 text-white/50">
+                <Sun size={12} />
+                <span className="text-[12px] font-medium">{t("Hardness")}</span>
+              </div>
+              <span className="text-[11px] font-mono text-white/40 bg-white/[0.05] px-2 py-0.5 rounded">
+                {brushHardness}%
+              </span>
             </div>
             <input
               type="range"
@@ -481,14 +662,20 @@ export const InpaintStudio = () => {
               max="100"
               value={brushHardness}
               onChange={(e) => setBrushHardness(Number(e.target.value))}
-              className="w-full h-1 bg-zinc-800 rounded-full appearance-none accent-purple-400 cursor-pointer hover:accent-purple-300"
+              className="slider-track w-full"
             />
           </div>
 
+          {/* Opacity */}
           <div className="space-y-3">
-            <div className="flex justify-between text-xs text-zinc-400">
-              <span className="flex items-center gap-1.5 font-medium"><Droplet size={10} /> {t("Opacity")}</span>
-              <span className="font-mono text-[10px]">{brushOpacity}%</span>
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2 text-white/50">
+                <Droplet size={12} />
+                <span className="text-[12px] font-medium">{t("Opacity")}</span>
+              </div>
+              <span className="text-[11px] font-mono text-white/40 bg-white/[0.05] px-2 py-0.5 rounded">
+                {brushOpacity}%
+              </span>
             </div>
             <input
               type="range"
@@ -496,43 +683,85 @@ export const InpaintStudio = () => {
               max="100"
               value={brushOpacity}
               onChange={(e) => setBrushOpacity(Number(e.target.value))}
-              className="w-full h-1 bg-zinc-800 rounded-full appearance-none accent-purple-400 cursor-pointer hover:accent-purple-300"
+              className="slider-track w-full"
             />
           </div>
         </div>
 
-        <div className="pointer-events-auto flex-1 bg-zinc-900/90 backdrop-blur-xl border border-white/10 rounded-xl p-4 shadow-2xl ring-1 ring-white/5 overflow-hidden flex flex-col">
+        {/* Layers Panel */}
+        <div className="pointer-events-auto glass-panel rounded-2xl p-5 flex-1 overflow-hidden flex flex-col">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest font-display">{t("Layers")}</span>
-            <Layers size={12} className="text-zinc-500" />
-          </div>
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2 p-2 bg-zinc-800/40 rounded-lg border border-purple-500/20 cursor-pointer hover:bg-zinc-800 transition-colors group">
-              <Eye size={12} className="text-zinc-500 group-hover:text-zinc-300" />
-              <div className="w-6 h-6 rounded bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
-                <Brush size={10} className="text-purple-400" />
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-white/[0.05] border border-white/[0.08] flex items-center justify-center">
+                <Layers size={14} className="text-white/50" />
               </div>
-              <span className="text-xs font-medium text-zinc-200">{t("Inpaint Mask")}</span>
+              <span className="section-title">{t("Layers")}</span>
             </div>
-            <div className="flex items-center gap-2 p-2 rounded-lg border border-transparent hover:bg-white/5 transition-colors cursor-pointer group">
-              <Eye size={12} className="text-zinc-500 group-hover:text-zinc-300" />
-              <div className="w-6 h-6 rounded bg-zinc-700 overflow-hidden">
-                {imageSrc && <img src={imageSrc} alt={t("Original")} className="w-full h-full object-cover opacity-50" />}
+            <span className="text-[10px] text-white/30 font-mono">2</span>
+          </div>
+          
+          <div className="space-y-2">
+            {/* Mask Layer */}
+            <div className="layer-item active flex items-center gap-3 p-3 rounded-xl cursor-pointer group">
+              <Eye size={14} className="text-purple-400/70 group-hover:text-purple-400" />
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/20 flex items-center justify-center">
+                <Brush size={12} className="text-purple-300" />
               </div>
-              <span className="text-xs font-medium text-zinc-500 group-hover:text-zinc-400 transition-colors">{t("Original")}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-medium text-white/80 truncate">{t("Inpaint Mask")}</p>
+                <p className="text-[10px] text-white/30">Active</p>
+              </div>
+            </div>
+
+            {/* Original Layer */}
+            <div className="layer-item flex items-center gap-3 p-3 rounded-xl cursor-pointer group border border-transparent hover:border-white/[0.05]">
+              <Eye size={14} className="text-white/30 group-hover:text-white/50" />
+              <div className="w-8 h-8 rounded-lg bg-white/[0.05] border border-white/[0.08] overflow-hidden flex items-center justify-center">
+                {imageSrc ? (
+                  <img src={imageSrc} alt={t("Original")} className="w-full h-full object-cover opacity-40" />
+                ) : (
+                  <div className="w-full h-full bg-white/[0.03]" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-medium text-white/50 group-hover:text-white/70 transition-colors truncate">
+                  {t("Original Image")}
+                </p>
+                <p className="text-[10px] text-white/20">Base</p>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="pointer-events-auto bg-zinc-900/90 backdrop-blur-xl border border-white/10 rounded-xl p-2 shadow-2xl ring-1 ring-white/5 flex items-center justify-between">
-          <button onClick={() => setZoom((z) => Math.max(z - 0.1, 0.1))} className="p-2 text-zinc-400 hover:text-white rounded-lg hover:bg-white/5"><ZoomOut size={14} /></button>
-          <span className="text-xs font-mono font-bold text-zinc-300 w-12 text-center">{Math.round(zoom * 100)}%</span>
-          <button onClick={() => setZoom((z) => Math.min(z + 0.1, 5))} className="p-2 text-zinc-400 hover:text-white rounded-lg hover:bg-white/5"><ZoomIn size={14} /></button>
-          <div className="w-px h-3 bg-white/10 mx-1" />
-          <button onClick={resetView} className="p-2 text-zinc-400 hover:text-white rounded-lg hover:bg-white/5"><RotateCcw size={14} /></button>
+        {/* Zoom Controls */}
+        <div className="pointer-events-auto glass-panel rounded-2xl p-2 flex items-center justify-between">
+          <button 
+            onClick={() => setZoom((z) => Math.max(z - 0.1, 0.1))} 
+            className="p-2.5 text-white/40 hover:text-white hover:bg-white/[0.05] rounded-xl transition-all"
+          >
+            <ZoomOut size={16} />
+          </button>
+          <span className="text-[12px] font-mono font-semibold text-white/60 w-14 text-center">
+            {Math.round(zoom * 100)}%
+          </span>
+          <button 
+            onClick={() => setZoom((z) => Math.min(z + 0.1, 5))} 
+            className="p-2.5 text-white/40 hover:text-white hover:bg-white/[0.05] rounded-xl transition-all"
+          >
+            <ZoomIn size={16} />
+          </button>
+          <div className="w-px h-4 bg-white/5 mx-1" />
+          <button 
+            onClick={resetView} 
+            className="p-2.5 text-white/40 hover:text-white hover:bg-white/[0.05] rounded-xl transition-all"
+            title="Reset View"
+          >
+            <RotateCcw size={16} />
+          </button>
         </div>
       </div>
 
+      {/* Main Canvas Area */}
       <div
         ref={containerRef}
         className={`w-full h-full overflow-hidden relative touch-none ${getContainerCursor()}`}
@@ -544,9 +773,10 @@ export const InpaintStudio = () => {
           setIsMouseOverImage(false);
         }}
       >
+        {/* Custom Cursor */}
         {(tool === "brush" || tool === "eraser") && isMouseOverImage && !isPanning && (
           <div
-            className="pointer-events-none fixed z-50 rounded-full border border-white shadow-[0_0_10px_rgba(0,0,0,0.5)]"
+            className="pointer-events-none fixed z-50 rounded-full border-2 shadow-lg"
             style={{
               left: cursorPos.x,
               top: cursorPos.y,
@@ -554,13 +784,17 @@ export const InpaintStudio = () => {
               height: brushSize * zoom,
               transform: "translate(-50%, -50%)",
               backgroundColor:
-                tool === "eraser" ? "rgba(239, 68, 68, 0.2)" : "rgba(216, 180, 254, 0.2)",
-              borderColor: tool === "eraser" ? "#ef4444" : "#e9d5ff",
+                tool === "eraser" ? "rgba(239, 68, 68, 0.15)" : "rgba(192, 132, 252, 0.15)",
+              borderColor: tool === "eraser" ? "rgba(239, 68, 68, 0.5)" : "rgba(192, 132, 252, 0.6)",
+              boxShadow: tool === "eraser" 
+                ? "0 0 20px rgba(239, 68, 68, 0.3)" 
+                : "0 0 20px rgba(192, 132, 252, 0.3)",
               willChange: "left, top",
             }}
           />
         )}
 
+        {/* Image + Canvas */}
         {imageSrc && (
           <div
             style={{
@@ -577,15 +811,15 @@ export const InpaintStudio = () => {
               src={imageSrc}
               alt={t("Workspace")}
               crossOrigin="anonymous"
-              className="block max-w-none pointer-events-none select-none shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+              className="block max-w-none pointer-events-none select-none shadow-[0_0_60px_rgba(0,0,0,0.6)]"
               onLoad={handleImageLoad}
               draggable={false}
             />
-
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
           </div>
         )}
 
+        {/* Empty State / Upload */}
         {!imageSrc && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div
@@ -596,32 +830,38 @@ export const InpaintStudio = () => {
                 e.stopPropagation();
                 if (e.dataTransfer.files?.[0]) handleFileUpload(e.dataTransfer.files[0]);
               }}
-              className="flex flex-col items-center justify-center border border-dashed border-zinc-700 rounded-2xl p-16 bg-zinc-900/50 pointer-events-auto cursor-pointer hover:border-purple-500/50 hover:bg-zinc-900/80 transition-all group"
+              className="pointer-events-auto flex flex-col items-center justify-center border border-dashed border-white/10 rounded-3xl p-20 bg-white/[0.02] hover:bg-white/[0.04] hover:border-purple-500/30 transition-all duration-300 group cursor-pointer"
             >
-              <Upload size={48} className="text-zinc-600 mb-4 group-hover:text-purple-400 transition-colors" />
-              <span className="text-zinc-400 font-bold font-display tracking-wide text-sm">{t("Upload Image")}</span>
-              <span className="text-zinc-600 text-xs mt-2 font-display">{t("Drop an image or click to browse")}</span>
+              <div className="w-20 h-20 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                <Upload size={32} className="text-white/20 group-hover:text-purple-400/60 transition-colors" />
+              </div>
+              <span className="text-white/50 font-semibold text-base mb-2">{t("Upload Image")}</span>
+              <span className="text-white/25 text-sm">{t("Drop an image or click to browse")}</span>
             </div>
           </div>
         )}
       </div>
 
+      {/* Bottom Prompt Bar */}
       <div className="absolute bottom-8 left-0 right-0 px-4 flex justify-center z-40 pointer-events-none">
-        <div className="pointer-events-auto w-full max-w-2xl bg-[#0a0a0a]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-1.5 shadow-2xl ring-1 ring-white/5 flex items-end gap-2">
-          <div className="pl-3 pr-2 mb-[1px]">
-            <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-white/5 flex items-center justify-center">
-              <Zap size={16} className="text-purple-400 fill-purple-400" />
+        <div className="pointer-events-auto w-full max-w-2xl glass-panel rounded-2xl p-2 flex items-end gap-3">
+          {/* AI Icon */}
+          <div className="pl-2 pb-2">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/20 flex items-center justify-center">
+              <Wand2 size={18} className="text-purple-300" />
             </div>
           </div>
-          <div className="h-8 w-px bg-white/10 mx-1 mb-[1px]" />
 
+          <div className="h-8 w-px bg-white/5 mb-2.5" />
+
+          {/* Textarea */}
           <textarea
             ref={promptInputRef}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder={t("Describe what to fill in the masked area...")}
+            placeholder={t("Describe what to generate in the masked area...")}
             rows={1}
-            className="flex-1 bg-transparent text-white placeholder-zinc-500 outline-none text-sm font-medium min-h-[40px] px-2 py-2.5 font-sans resize-none custom-scrollbar leading-relaxed"
+            className="flex-1 bg-transparent text-white placeholder-white/20 outline-none text-sm font-medium min-h-[44px] px-2 py-3 resize-none custom-scrollbar leading-relaxed"
             style={{ maxHeight: "120px" }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -631,17 +871,27 @@ export const InpaintStudio = () => {
             }}
           />
 
+          {/* Generate Button */}
           <button
             onClick={handleGenerate}
             disabled={isGenerating || !imageSrc || !prompt.trim()}
-            className={`h-10 px-6 rounded-xl font-bold font-display uppercase tracking-wide text-xs transition-all duration-300 flex items-center gap-2 mb-[1px] ${
+            className={`generate-btn h-11 px-6 rounded-xl font-bold text-xs uppercase tracking-wider transition-all duration-300 flex items-center gap-2 mb-0.5 shrink-0 ${
               isGenerating || !imageSrc || !prompt.trim()
-                ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-                : "bg-gradient-brand hover:bg-gradient-brand-hover text-black shadow-[0_0_20px_rgba(232,121,249,0.3)] hover:shadow-[0_0_30px_rgba(232,121,249,0.5)]"
+                ? "bg-white/[0.05] text-white/30 cursor-not-allowed"
+                : "bg-gradient-brand hover:bg-gradient-brand-hover text-black shadow-[0_0_30px_rgba(192,132,252,0.25)] hover:shadow-[0_0_40px_rgba(192,132,252,0.4)]"
             }`}
           >
-            {isGenerating ? t("Processing...") : t("Generate")}
-            {!isGenerating && <Zap size={14} className="fill-black" />}
+            {isGenerating ? (
+              <>
+                <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+                <span>{t("Processing")}</span>
+              </>
+            ) : (
+              <>
+                <Sparkles size={14} className="fill-black" />
+                <span>{t("Generate")}</span>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -649,6 +899,9 @@ export const InpaintStudio = () => {
   );
 };
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// TOOL BUTTON COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
 type ToolButtonProps = {
   active: boolean;
   onClick: () => void;
@@ -667,21 +920,16 @@ const ToolButton = ({
   <div className="relative group">
     <button
       onClick={onClick}
-      className={`p-2.5 rounded-lg transition-all duration-200 relative ${
+      className={`tool-btn w-11 h-11 flex items-center justify-center rounded-xl transition-all duration-200 ${
         active
-          ? "bg-zinc-800 border border-white/10 shadow-inner"
-          : "text-zinc-500 hover:text-white hover:bg-white/5"
+          ? `active ${activeColor}`
+          : "text-white/35 hover:text-white/70"
       }`}
     >
-      <div className={`relative z-10 ${active ? activeColor : ""}`}>{icon}</div>
-      {active && (
-        <div
-          className={`absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-current rounded-r-md ${activeColor.replace("text-", "bg-")}`}
-        />
-      )}
+      {icon}
     </button>
     {tooltip && (
-      <div className="absolute left-full ml-4 top-1/2 -translate-y-1/2 px-2 py-1 bg-black border border-white/10 rounded text-[10px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-lg z-50 font-display tracking-wide">
+      <div className="absolute left-full ml-4 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-black/90 border border-white/[0.08] rounded-lg text-[10px] font-semibold text-white/70 opacity-0 group-hover:opacity-100 transition-all duration-200 whitespace-nowrap pointer-events-none shadow-xl">
         {tooltip}
       </div>
     )}
