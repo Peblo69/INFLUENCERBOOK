@@ -51,7 +51,10 @@ export const kiaraRequest = async <T>(
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const errorMessage = data?.error || data?.message || `Request failed (${response.status})`;
+    const raw = data?.error || data?.message || data?.detail;
+    const errorMessage = typeof raw === "string"
+      ? raw
+      : raw ? JSON.stringify(raw) : `Request failed (${response.status})`;
     throw new Error(errorMessage);
   }
 

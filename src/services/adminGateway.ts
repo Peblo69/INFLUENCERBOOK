@@ -87,6 +87,53 @@ export interface AdminUserDetail {
   generation_credits_total: number;
 }
 
+export interface AssistantLatencyMetricRow {
+  id: string;
+  user_id: string;
+  conversation_id: string | null;
+  request_mode: "stream" | "non_stream";
+  api_mode: "chat_completions" | "responses";
+  model: string;
+  web_search_enabled: boolean;
+  memory_enabled: boolean;
+  memory_strategy: string | null;
+  memory_retrieved_count: number;
+  used_responses_api: boolean;
+  request_chars: number;
+  response_chars: number | null;
+  tool_count: number;
+  auth_ms: number;
+  profile_ms: number;
+  memory_ms: number;
+  upstream_ms: number;
+  total_ms: number;
+  status: "success" | "upstream_error" | "error";
+  http_status: number;
+  error_message: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  user?: {
+    id: string;
+    email: string | null;
+    display_name: string | null;
+    username: string | null;
+  } | null;
+}
+
+export interface AssistantLatencyMetricsSummary {
+  total_requests: number;
+  success_count: number;
+  upstream_error_count: number;
+  error_count: number;
+  success_rate: number;
+  p50_total_ms: number;
+  p95_total_ms: number;
+  avg_total_ms: number;
+  web_search_rate: number;
+  responses_api_rate: number;
+  memory_timeout_count: number;
+}
+
 export const getAdminDashboard = async (hours = 24): Promise<AdminDashboard> => {
   const response = await kiaraRequest<{ success: boolean; dashboard: AdminDashboard }>("kiara-admin", {
     action: "dashboard",
@@ -201,4 +248,30 @@ export const setAdminUserRole = async (params: {
     is_admin: params.isAdmin,
   });
   return response.user;
+};
+
+export const getAssistantLatencyMetrics = async (params?: {
+  hours?: number;
+  limit?: number;
+}): Promise<{
+  windowHours: number;
+  metrics: AssistantLatencyMetricsSummary;
+  recent: AssistantLatencyMetricRow[];
+}> => {
+  const response = await kiaraRequest<{
+    success: boolean;
+    window_hours: number;
+    metrics: AssistantLatencyMetricsSummary;
+    recent: AssistantLatencyMetricRow[];
+  }>("kiara-admin", {
+    action: "assistant-metrics",
+    hours: params?.hours ?? 24,
+    limit: params?.limit ?? 250,
+  });
+
+  return {
+    windowHours: response.window_hours,
+    metrics: response.metrics,
+    recent: response.recent || [],
+  };
 };

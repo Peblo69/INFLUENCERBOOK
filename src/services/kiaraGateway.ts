@@ -96,6 +96,7 @@ export interface KiaraGenerateRequest {
   num_images?: number;
   seed?: number;
   output_format?: "jpeg" | "png" | "webp";
+  client_request_id?: string;
 
   // LoRA override for RunningHub workflow
   lora?: {
@@ -127,6 +128,8 @@ export interface KiaraGenerateResponse {
   job_id?: string;
   provider?: string; // Legacy
   images: string[];
+  nsfw?: boolean;
+  message?: string;
   raw?: unknown;
 }
 
@@ -396,6 +399,142 @@ export const getTrainingSignedUrls = async (
   return kiaraRequest<TrainingSignedUrlsResponse>("training-signed-url", { paths, expiresIn });
 };
 
+// ==================== ASYNC RUNNINGHUB (Video Generation) ====================
+
+export interface RunninghubCreateRequest {
+  model_id: string;
+  prompt?: string;
+  negative_prompt?: string;
+  image_urls?: string[];
+  nodeInfoList?: Array<{ nodeId: string; fieldName: string; fieldValue: string }>;
+  seed?: number;
+  params?: Record<string, unknown>;
+}
+
+export interface RunninghubCreateResponse {
+  success: boolean;
+  task_id?: string;
+  job_id?: string;
+  error?: string;
+}
+
+export const kiaraRunninghubCreate = async (
+  params: RunninghubCreateRequest
+): Promise<RunninghubCreateResponse> => {
+  return kiaraRequest<RunninghubCreateResponse>("kiara-generate", {
+    action: "runninghub-create",
+    ...params,
+  });
+};
+
+export interface RunninghubStatusResponse {
+  success: boolean;
+  task_id: string;
+  status: string;
+  error?: string;
+}
+
+export const kiaraRunninghubStatus = async (
+  taskId: string
+): Promise<RunninghubStatusResponse> => {
+  return kiaraRequest<RunninghubStatusResponse>("kiara-generate", {
+    action: "runninghub-status",
+    task_id: taskId,
+  });
+};
+
+export interface RunninghubOutputsResponse {
+  success: boolean;
+  urls?: string[];
+  storagePaths?: string[];
+  task_id: string;
+  error?: string;
+}
+
+export const kiaraRunninghubOutputs = async (
+  taskId: string,
+  jobId?: string
+): Promise<RunninghubOutputsResponse> => {
+  return kiaraRequest<RunninghubOutputsResponse>("kiara-generate", {
+    action: "runninghub-outputs",
+    task_id: taskId,
+    job_id: jobId,
+  });
+};
+
+// ==================== FAL.AI QUEUE (Grok Video etc.) ====================
+
+export interface FalSubmitRequest {
+  model_id: string;
+  prompt: string;
+  image_url?: string;   // required for image-to-video
+  video_url?: string;   // required for edit-video
+  duration?: number;
+  aspect_ratio?: string;
+  resolution?: string;
+}
+
+export interface FalSubmitResponse {
+  success: boolean;
+  request_id: string;
+  job_id?: string;
+  endpoint?: string;
+  error?: string;
+}
+
+export interface FalStatusResponse {
+  success: boolean;
+  request_id: string;
+  status: "IN_QUEUE" | "IN_PROGRESS" | "COMPLETED" | "FAILED";
+  queue_position?: number;
+  error?: string;
+}
+
+export interface FalResultResponse {
+  success: boolean;
+  request_id: string;
+  urls?: string[];
+  storagePaths?: string[];
+  video_meta?: { url: string; width: number; height: number; duration: number; fps: number };
+  error?: string;
+}
+
+/** Submit a fal.ai queue job (e.g. Grok Imagine Video) */
+export const kiaraFalSubmit = async (
+  params: FalSubmitRequest
+): Promise<FalSubmitResponse> => {
+  return kiaraRequest<FalSubmitResponse>("kiara-generate", {
+    action: "fal-submit",
+    ...params,
+  });
+};
+
+/** Check fal.ai queue job status */
+export const kiaraFalStatus = async (
+  requestId: string,
+  endpoint?: string
+): Promise<FalStatusResponse> => {
+  return kiaraRequest<FalStatusResponse>("kiara-generate", {
+    action: "fal-status",
+    request_id: requestId,
+    endpoint,
+  });
+};
+
+/** Fetch fal.ai queue job result (video URL, rehosted to Supabase) */
+export const kiaraFalResult = async (
+  requestId: string,
+  jobId?: string,
+  endpoint?: string
+): Promise<FalResultResponse> => {
+  return kiaraRequest<FalResultResponse>("kiara-generate", {
+    action: "fal-result",
+    request_id: requestId,
+    job_id: jobId,
+    endpoint,
+  });
+};
+
 // ==================== LORA MANAGEMENT (RunningHub) ====================
 
 export interface LoRAModel {
@@ -595,6 +734,7 @@ export interface KiaraVisionTaskResponse {
   progress?: number | null;
   createdAt?: string;
   credits_charged?: number;
+  storagePaths?: string[];
   creditBalance?: number;
   tier?: Record<string, unknown>;
   usage?: Record<string, unknown>;
@@ -636,6 +776,7 @@ export const kiaraVisionTextToImage = async (params: {
   ratio?: string;
   referenceImages?: KiaraVisionReferenceImage[];
   seed?: number;
+  client_request_id?: string;
   contentModeration?: { publicFigureThreshold?: "auto" | "low" };
 }): Promise<KiaraVisionTaskResponse> => {
   return kiaraVisionRequest<KiaraVisionTaskResponse>("text-to-image", params as Record<string, unknown>);
@@ -726,3 +867,247 @@ export const kiaraVisionCancelTask = async (taskId: string): Promise<{ success: 
 export const kiaraVisionOrganization = async (): Promise<KiaraVisionTaskResponse> => {
   return kiaraVisionRequest<KiaraVisionTaskResponse>("organization");
 };
+
+// ==================== xAI ENTERPRISE WRAPPER ====================
+
+type XaiAction =
+  | "chat-completions"
+  | "messages-create"
+  | "completions-legacy"
+  | "complete-legacy"
+  | "chat-deferred-get"
+  | "responses-create"
+  | "responses-get"
+  | "responses-delete"
+  | "images-generate"
+  | "images-edit"
+  | "videos-generate"
+  | "videos-edit"
+  | "videos-get"
+  | "api-key"
+  | "models-list"
+  | "models-get"
+  | "language-models-list"
+  | "language-models-get"
+  | "image-generation-models-list"
+  | "image-generation-models-get"
+  | "tokenize-text"
+  | "batches-create"
+  | "batches-list"
+  | "batches-get"
+  | "batches-list-requests"
+  | "batches-add-requests"
+  | "batches-results"
+  | "batches-cancel";
+
+export interface XaiChatCompletionResponse {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: Array<{
+    index: number;
+    message: { role: "assistant"; content: string; refusal?: string | null };
+    finish_reason?: string | null;
+  }>;
+  usage?: Record<string, unknown>;
+}
+
+export interface XaiResponseObject {
+  id: string;
+  object: "response";
+  model: string;
+  status: "completed" | "in_progress" | "incomplete";
+  output?: Array<Record<string, unknown>>;
+  usage?: Record<string, unknown>;
+}
+
+export interface XaiImageGenerationResponse {
+  data: Array<{ url?: string; b64_json?: string; revised_prompt?: string }>;
+  job_id?: string;
+  model_id?: string;
+  credits_charged?: number;
+}
+
+export interface XaiVideoRequestResponse {
+  request_id: string;
+  job_id?: string;
+  model_id?: string;
+}
+
+export interface XaiVideoResultResponse {
+  status?: "pending" | "done";
+  video?: { url: string; duration?: number };
+  model?: string;
+  job_id?: string;
+  model_id?: string;
+  credits_charged?: number;
+}
+
+export interface XaiModelMin {
+  id: string;
+  created: number;
+  object: "model";
+  owned_by: string;
+}
+
+export interface XaiLanguageModel extends XaiModelMin {
+  fingerprint?: string;
+  version?: string;
+  input_modalities?: string[];
+  output_modalities?: string[];
+  prompt_text_token_price?: number;
+  cached_prompt_text_token_price?: number;
+  prompt_image_token_price?: number;
+  completion_text_token_price?: number;
+  search_price?: number;
+  aliases?: string[];
+}
+
+export interface XaiImageGenerationModel extends XaiModelMin {
+  fingerprint?: string;
+  version?: string;
+  max_prompt_length?: number;
+  prompt_text_token_price?: number;
+  prompt_image_token_price?: number;
+  generated_image_token_price?: number;
+  aliases?: string[];
+}
+
+export interface XaiBatchInfo {
+  batch_id: string;
+  name: string;
+  create_time?: string;
+  expire_time?: string;
+  cancel_time?: string | null;
+  create_api_key_id?: string;
+  state?: Record<string, unknown> | null;
+}
+
+const kiaraXaiRequest = async <T>(
+  action: XaiAction,
+  payload: Record<string, unknown> = {}
+): Promise<T> => {
+  try {
+    return await kiaraRequest<T>("kiara-intelligence", {
+      route: "xai",
+      action,
+      payload,
+    });
+  } catch (error: any) {
+    const message = String(error?.message || "");
+    const gatewayUnavailable =
+      /failed to fetch/i.test(message) ||
+      /networkerror/i.test(message) ||
+      /err_failed/i.test(message) ||
+      /request failed \(404\)/i.test(message) ||
+      /unsupported route/i.test(message) ||
+      /missing xai action/i.test(message);
+
+    if (!gatewayUnavailable) throw error;
+
+    return kiaraRequest<T>("kiara-grok", {
+      action,
+      ...payload,
+    });
+  }
+};
+
+export const xaiChatCompletions = async (payload: Record<string, unknown>) =>
+  kiaraXaiRequest<XaiChatCompletionResponse>("chat-completions", payload);
+
+export const xaiMessagesCreate = async (payload: Record<string, unknown>) =>
+  kiaraXaiRequest<Record<string, unknown>>("messages-create", payload);
+
+export const xaiCompletionsLegacy = async (payload: Record<string, unknown>) =>
+  kiaraXaiRequest<Record<string, unknown>>("completions-legacy", payload);
+
+export const xaiCompleteLegacy = async (payload: Record<string, unknown>) =>
+  kiaraXaiRequest<Record<string, unknown>>("complete-legacy", payload);
+
+export const xaiDeferredCompletion = async (requestId: string) =>
+  kiaraXaiRequest<XaiChatCompletionResponse>("chat-deferred-get", { request_id: requestId });
+
+export const xaiCreateResponse = async (payload: Record<string, unknown>) =>
+  kiaraXaiRequest<XaiResponseObject>("responses-create", payload);
+
+export const xaiGetResponse = async (responseId: string) =>
+  kiaraXaiRequest<XaiResponseObject>("responses-get", { response_id: responseId });
+
+export const xaiDeleteResponse = async (responseId: string) =>
+  kiaraXaiRequest<{ id: string; object: string; deleted: boolean }>("responses-delete", { response_id: responseId });
+
+export const xaiGenerateImage = async (payload: Record<string, unknown>) =>
+  kiaraXaiRequest<XaiImageGenerationResponse>("images-generate", payload);
+
+export const xaiEditImage = async (payload: Record<string, unknown>) =>
+  kiaraXaiRequest<XaiImageGenerationResponse>("images-edit", payload);
+
+export const xaiGenerateVideo = async (payload: Record<string, unknown>) =>
+  kiaraXaiRequest<XaiVideoRequestResponse>("videos-generate", payload);
+
+export const xaiEditVideo = async (payload: Record<string, unknown>) =>
+  kiaraXaiRequest<XaiVideoRequestResponse>("videos-edit", payload);
+
+export const xaiGetVideo = async (requestId: string) =>
+  kiaraXaiRequest<XaiVideoResultResponse>("videos-get", { request_id: requestId });
+
+export const xaiGetApiKeyInfo = async () =>
+  kiaraXaiRequest<Record<string, unknown>>("api-key");
+
+export const xaiListModels = async () =>
+  kiaraXaiRequest<{ data: XaiModelMin[]; object: "list" }>("models-list");
+
+export const xaiGetModel = async (modelId: string) =>
+  kiaraXaiRequest<XaiModelMin>("models-get", { model_id: modelId });
+
+export const xaiListLanguageModels = async () =>
+  kiaraXaiRequest<{ models: XaiLanguageModel[] }>("language-models-list");
+
+export const xaiGetLanguageModel = async (modelId: string) =>
+  kiaraXaiRequest<XaiLanguageModel>("language-models-get", { model_id: modelId });
+
+export const xaiListImageGenerationModels = async () =>
+  kiaraXaiRequest<{ models: XaiImageGenerationModel[] }>("image-generation-models-list");
+
+export const xaiGetImageGenerationModel = async (modelId: string) =>
+  kiaraXaiRequest<XaiImageGenerationModel>("image-generation-models-get", { model_id: modelId });
+
+export const xaiTokenizeText = async (text: string, model: string) =>
+  kiaraXaiRequest<{ token_ids: Array<Record<string, unknown>> }>("tokenize-text", { text, model });
+
+export const xaiCreateBatch = async (name: string) =>
+  kiaraXaiRequest<XaiBatchInfo>("batches-create", { name });
+
+export const xaiListBatches = async (params?: { limit?: number; pagination_token?: string }) =>
+  kiaraXaiRequest<{ batches: XaiBatchInfo[]; pagination_token?: string | null }>(
+    "batches-list",
+    params ?? {}
+  );
+
+export const xaiGetBatch = async (batchId: string) =>
+  kiaraXaiRequest<XaiBatchInfo>("batches-get", { batch_id: batchId });
+
+export const xaiListBatchRequests = async (
+  batchId: string,
+  params?: { limit?: number; pagination_token?: string }
+) =>
+  kiaraXaiRequest<{
+    batch_request_metadata: Array<Record<string, unknown>>;
+    pagination_token?: string | null;
+  }>("batches-list-requests", { batch_id: batchId, ...(params ?? {}) });
+
+export const xaiAddBatchRequests = async (batchId: string, batch_requests: Array<Record<string, unknown>>) =>
+  kiaraXaiRequest<Record<string, unknown>>("batches-add-requests", { batch_id: batchId, batch_requests });
+
+export const xaiGetBatchResults = async (
+  batchId: string,
+  params?: { limit?: number; pagination_token?: string }
+) =>
+  kiaraXaiRequest<{
+    results: Array<Record<string, unknown>>;
+    pagination_token?: string | null;
+  }>("batches-results", { batch_id: batchId, ...(params ?? {}) });
+
+export const xaiCancelBatch = async (batchId: string) =>
+  kiaraXaiRequest<XaiBatchInfo>("batches-cancel", { batch_id: batchId });

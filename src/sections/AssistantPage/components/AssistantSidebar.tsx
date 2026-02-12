@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ChatConversation } from "@/services/chatService";
-import { Infinity, PanelLeft, MoreHorizontal, Pencil, Trash2, X, Check, Settings, LogOut, Plus } from "lucide-react";
+import { Infinity, PanelLeft, MoreHorizontal, Pencil, Trash2, X, Check, Settings, LogOut, Plus, User, ChevronRight } from "lucide-react";
 
 interface AssistantSidebarProps {
   conversations: ChatConversation[];
@@ -12,7 +12,6 @@ interface AssistantSidebarProps {
   onNewChat: () => void;
   onRenameConversation: (id: string, newTitle: string) => void;
   onDeleteConversation: (id: string) => void;
-  onOpenSettings: () => void;
   onOpenUpgrade: () => void;
 }
 
@@ -24,33 +23,28 @@ export const AssistantSidebar = ({
   onNewChat,
   onRenameConversation,
   onDeleteConversation,
-  onOpenSettings,
   onOpenUpgrade,
 }: AssistantSidebarProps) => {
   const { user, profile, signOut } = useAuth();
-  const [showMenu, setShowMenu] = useState(false);
+  const navigate = useNavigate();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
   const convoMenuRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowMenu(false);
-      }
       if (convoMenuRef.current && !convoMenuRef.current.contains(event.target as Node)) {
         setMenuOpenId(null);
       }
     };
-    if (showMenu || menuOpenId) {
+    if (menuOpenId) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showMenu, menuOpenId]);
+  }, [menuOpenId]);
 
   useEffect(() => {
     if (editingId && editInputRef.current) {
@@ -97,11 +91,12 @@ export const AssistantSidebar = ({
   const navLinks = [
     { href: "/", label: "Home", icon: <HomeIcon /> },
     { href: "/assistant", label: "Assistant", icon: <ChatIcon /> },
-    { href: "/models", label: "Models", icon: <GridIcon /> },
-    { href: "/kiara-studio-labs", label: "Labs", icon: <FlaskIcon /> },
-    { href: "/images", label: "Images", icon: <ImageIcon /> },
-    { href: "/videos", label: "Video", icon: <VideoIcon /> },
+    { href: "/models", label: "Influencer Studio", icon: <GridIcon /> },
     { href: "/influencers", label: "Influencers", icon: <InfluencerIcon /> },
+    { href: "/videos", label: "Video", icon: <VideoIcon /> },
+    { href: "/kiara-studio-labs", label: "Labs", icon: <FlaskIcon /> },
+    { href: "/images", label: "Assets", icon: <ImageIcon /> },
+    ...(profile?.is_admin ? [{ href: "/admin", label: "Admin", icon: <AdminIcon /> }] : []),
   ];
 
   const groupedConversations = groupConversationsByDate(conversations);
@@ -353,7 +348,7 @@ export const AssistantSidebar = ({
       </div>
 
       {/* Footer Profile */}
-      <div className="flex-shrink-0 p-3 border-t border-white/[0.04] space-y-1 mt-auto" ref={menuRef}>
+      <div className="flex-shrink-0 p-3 border-t border-white/[0.04] space-y-2 mt-auto">
         {isCollapsed && (
           <div className="flex justify-center mb-3">
             <button
@@ -368,63 +363,64 @@ export const AssistantSidebar = ({
 
         {user ? (
           <>
-            <div
-              onClick={() => setShowMenu(!showMenu)}
-              className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer transition-all duration-200 relative group ${
-                isCollapsed ? "justify-center" : ""
-              } ${showMenu ? "bg-white/[0.04]" : "hover:bg-white/[0.03]"}`}
-            >
-              {showMenu && !isCollapsed && (
-                <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 bg-black/95 border border-white/[0.06] rounded-xl shadow-2xl overflow-hidden z-[60] backdrop-blur-xl">
-                  <div className="p-1.5 space-y-0.5">
-                    <button
-                      onClick={() => {
-                        onOpenSettings();
-                        setShowMenu(false);
-                      }}
-                      className="w-full flex items-center gap-3 px-3 py-2 text-[12px] text-white/50 hover:text-white/80 hover:bg-white/[0.05] rounded-lg transition-colors"
-                    >
-                      <Settings size={14} />
-                      <span className="font-normal">Settings</span>
-                    </button>
-                    <div className="h-px bg-white/[0.04] mx-2 my-1"></div>
-                    <button
-                      onClick={() => {
-                        setShowMenu(false);
-                        signOut();
-                      }}
-                      className="w-full flex items-center gap-3 px-3 py-2 text-[12px] text-red-400/60 hover:text-red-400/90 hover:bg-red-500/[0.06] rounded-lg transition-colors"
-                    >
-                      <LogOut size={14} />
-                      <span className="font-normal">Log out</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
+            {/* User Display */}
+            <div className={`flex items-center gap-3 p-2 rounded-xl ${isCollapsed ? "justify-center" : ""}`}>
               <div className="w-8 h-8 min-w-[32px] rounded-full bg-white/[0.08] border border-white/[0.08] flex items-center justify-center">
                 <span className="text-[11px] font-medium text-white/70">
-                  {profile?.display_name?.[0] ||
-                    profile?.username?.[0] ||
-                    user.email?.[0] ||
-                    "U"}
+                  {profile?.display_name?.[0] || profile?.username?.[0] || user.email?.[0] || "U"}
                 </span>
               </div>
 
-              <div
-                className={`flex-1 min-w-0 overflow-hidden transition-all duration-300 ${
-                  isCollapsed ? "w-0 opacity-0 ml-0" : "w-auto opacity-100"
-                }`}
-              >
+              <div className={`overflow-hidden transition-all duration-300 ${isCollapsed ? "w-0 opacity-0" : "w-auto opacity-100"}`}>
                 <p className="text-[13px] font-medium text-white/80 truncate">
-                  {profile?.display_name ||
-                    profile?.username ||
-                    user.email?.split("@")[0]}
+                  {profile?.display_name || profile?.username || user.email?.split("@")[0]}
                 </p>
                 <p className="text-[10px] text-white/30 truncate font-normal">
                   {profile?.is_pro ? "Pro Plan" : "Free Plan"}
                 </p>
               </div>
+            </div>
+
+            {/* Profile & Settings Buttons */}
+            <div className={`space-y-1 ${isCollapsed ? "space-y-2" : ""}`}>
+              {/* Profile Button */}
+              <button 
+                onClick={() => navigate("/profile")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 text-white/60 hover:text-white/90 hover:bg-white/[0.05] group ${isCollapsed ? "justify-center px-0" : ""}`}
+                title={isCollapsed ? "Profile" : undefined}
+              >
+                <User size={16} className="group-hover:scale-110 transition-transform" />
+                <span className={`text-[12px] font-normal transition-all duration-300 ${isCollapsed ? "w-0 opacity-0 hidden" : "w-auto opacity-100"}`}>
+                  Profile
+                </span>
+              </button>
+
+              {/* Settings Button */}
+              <button 
+                onClick={() => navigate("/settings")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 text-white/60 hover:text-white/90 hover:bg-white/[0.05] group ${isCollapsed ? "justify-center px-0" : ""}`}
+                title={isCollapsed ? "Settings" : undefined}
+              >
+                <Settings size={16} className="group-hover:scale-110 transition-transform" />
+                <span className={`text-[12px] font-normal transition-all duration-300 ${isCollapsed ? "w-0 opacity-0 hidden" : "w-auto opacity-100"}`}>
+                  Settings
+                </span>
+              </button>
+
+              {/* Divider */}
+              {!isCollapsed && <div className="h-px bg-white/[0.04] my-1"></div>}
+
+              {/* Logout Button */}
+              <button 
+                onClick={() => signOut()}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 text-red-400/60 hover:text-red-400/90 hover:bg-red-500/[0.06] group ${isCollapsed ? "justify-center px-0" : ""}`}
+                title={isCollapsed ? "Log out" : undefined}
+              >
+                <LogOut size={16} className="group-hover:scale-110 transition-transform" />
+                <span className={`text-[12px] font-normal transition-all duration-300 ${isCollapsed ? "w-0 opacity-0 hidden" : "w-auto opacity-100"}`}>
+                  Log out
+                </span>
+              </button>
             </div>
           </>
         ) : (
@@ -540,5 +536,12 @@ const VideoIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="23 7 16 12 23 17 23 7" />
     <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+  </svg>
+);
+
+const AdminIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3 4 7v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V7z" />
+    <path d="m9 12 2 2 4-4" />
   </svg>
 );

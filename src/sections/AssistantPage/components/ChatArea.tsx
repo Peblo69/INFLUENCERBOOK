@@ -122,7 +122,7 @@ const DEFAULT_ASSISTANT_SETTINGS: AssistantRuntimeSettings = {
   model: NON_THINKING_MODEL,
   temperature: 0.7,
   maxTokens: 4096,
-  webSearchEnabled: true,
+  webSearchEnabled: false,
   knowledgeBaseEnabled: true,
   customInstructions: "",
   streamResponse: true,
@@ -918,6 +918,12 @@ export const ChatArea = ({
 
     const userContent = input;
     const userAttachments = [...attachments];
+    const forceWebSearchThisTurn = activeTool === "web";
+    if (forceWebSearchThisTurn) {
+      // Treat web lookup as a one-shot action to avoid accidentally forcing slow
+      // web-search mode on every subsequent message.
+      setActiveTool(null);
+    }
 
     setInput("");
     setAttachments([]);
@@ -964,7 +970,7 @@ export const ChatArea = ({
 
     const finalPrompt = userContent;
     const shouldUseWebSearch =
-      activeTool === "web"
+      forceWebSearchThisTurn
         ? true
         : assistantSettings.webSearchEnabled
           ? undefined
@@ -1244,18 +1250,38 @@ export const ChatArea = ({
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center select-none">
             <div className="flex flex-col items-center gap-5 pb-32">
-              {/* Animated Infinity SVG */}
+              {/* Animated Infinity SVG with Soft Gradient */}
               <div className="relative">
-                {/* Glow layer */}
-                <div className="absolute inset-0 blur-2xl opacity-30">
+                {/* Soft glow layer */}
+                <div className="absolute inset-0 blur-3xl opacity-50">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid" width="110" height="110" style={{ display: "block" }}>
-                    <g><path style={{ transform: "scale(0.8)", transformOrigin: "50px 50px" }} strokeLinecap="round" d="M24.3 30C11.4 30 5 43.3 5 50s6.4 20 19.3 20c19.3 0 32.1-40 51.4-40 C88.6 30 95 43.3 95 50s-6.4 20-19.3 20C56.4 70 43.6 30 24.3 30z" strokeDasharray="174.48 82.11" strokeWidth="6" stroke="rgba(255,255,255,0.4)" fill="none"><animate values="0;256.59" keyTimes="0;1" dur="1.1s" repeatCount="indefinite" attributeName="stroke-dashoffset" /></path></g>
+                    <defs>
+                      <linearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#93c5fd" stopOpacity="0.4" />
+                        <stop offset="50%" stopColor="#f9a8d4" stopOpacity="0.35" />
+                        <stop offset="100%" stopColor="#67e8f9" stopOpacity="0.4" />
+                      </linearGradient>
+                    </defs>
+                    <g><path style={{ transform: "scale(0.8)", transformOrigin: "50px 50px" }} strokeLinecap="round" d="M24.3 30C11.4 30 5 43.3 5 50s6.4 20 19.3 20c19.3 0 32.1-40 51.4-40 C88.6 30 95 43.3 95 50s-6.4 20-19.3 20C56.4 70 43.6 30 24.3 30z" strokeDasharray="174.48 82.11" strokeWidth="10" stroke="url(#glowGrad)" fill="none"><animate values="0;256.59" keyTimes="0;1" dur="1.1s" repeatCount="indefinite" attributeName="stroke-dashoffset" /></path></g>
                   </svg>
                 </div>
-                {/* Main infinity */}
-                <div className="relative" style={{ filter: "drop-shadow(0 0 20px rgba(255,255,255,0.2)) drop-shadow(0 4px 12px rgba(0,0,0,0.4))" }}>
+                {/* Main infinity with soft gradient */}
+                <div className="relative" style={{ filter: "drop-shadow(0 0 30px rgba(147,197,253,0.25)) drop-shadow(0 0 50px rgba(249,168,212,0.2))" }}>
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid" width="110" height="110" style={{ display: "block" }}>
-                    <g><path style={{ transform: "scale(0.8)", transformOrigin: "50px 50px" }} strokeLinecap="round" d="M24.3 30C11.4 30 5 43.3 5 50s6.4 20 19.3 20c19.3 0 32.1-40 51.4-40 C88.6 30 95 43.3 95 50s-6.4 20-19.3 20C56.4 70 43.6 30 24.3 30z" strokeDasharray="174.48 82.11" strokeWidth="6" stroke="rgba(255,255,255,0.9)" fill="none"><animate values="0;256.59" keyTimes="0;1" dur="1.1s" repeatCount="indefinite" attributeName="stroke-dashoffset" /></path></g>
+                    <defs>
+                      <linearGradient id="infinityGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#93c5fd">
+                          <animate attributeName="stop-color" values="#93c5fd;#c4b5fd;#f9a8d4;#67e8f9;#93c5fd" dur="4s" repeatCount="indefinite" />
+                        </stop>
+                        <stop offset="50%" stopColor="#f9a8d4">
+                          <animate attributeName="stop-color" values="#f9a8d4;#67e8f9;#93c5fd;#c4b5fd;#f9a8d4" dur="4s" repeatCount="indefinite" />
+                        </stop>
+                        <stop offset="100%" stopColor="#67e8f9">
+                          <animate attributeName="stop-color" values="#67e8f9;#93c5fd;#c4b5fd;#f9a8d4;#67e8f9" dur="4s" repeatCount="indefinite" />
+                        </stop>
+                      </linearGradient>
+                    </defs>
+                    <g><path style={{ transform: "scale(0.8)", transformOrigin: "50px 50px" }} strokeLinecap="round" d="M24.3 30C11.4 30 5 43.3 5 50s6.4 20 19.3 20c19.3 0 32.1-40 51.4-40 C88.6 30 95 43.3 95 50s-6.4 20-19.3 20C56.4 70 43.6 30 24.3 30z" strokeDasharray="174.48 82.11" strokeWidth="9" stroke="url(#infinityGrad)" fill="none"><animate values="0;256.59" keyTimes="0;1" dur="1.1s" repeatCount="indefinite" attributeName="stroke-dashoffset" /></path></g>
                   </svg>
                 </div>
               </div>

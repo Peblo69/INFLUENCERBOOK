@@ -5,7 +5,89 @@
 
 import { supabase } from '@/lib/supabase';
 import { generateQueryEmbedding } from './embeddings';
-import type { SearchResult, KnowledgeSearchOptions } from './types';
+import type {
+  SearchResult,
+  KnowledgeSearchOptions,
+  KnowledgeContextOptions,
+  KnowledgeIntent,
+} from './types';
+
+const GENERATION_QUERY_PATTERN =
+  /\b(generate|generation|image|photo|picture|video|prompt|model|lora|seedream|runway|grok|aspect ratio|inpaint|upscale|workflow)\b/i;
+const GROWTH_QUERY_PATTERN =
+  /\b(growth|monetization|revenue|pricing|sales|conversion|funnel|outreach|traffic|followers|engagement|content strategy|campaign)\b/i;
+const PLATFORM_QUERY_PATTERN =
+  /\b(tiktok|instagram|onlyfans|reddit|youtube|x\b|threads|algorithm|policy|ban|shadowban|platform)\b/i;
+const RESEARCH_QUERY_PATTERN =
+  /\b(latest|current|recent|trend|trending|news|update|benchmark|market|statistics|data)\b/i;
+
+type IntentSearchProfile = {
+  threshold: number;
+  topK: number;
+  minResults: number;
+  tags?: string[];
+};
+
+const INTENT_SEARCH_PROFILES: Record<KnowledgeIntent, IntentSearchProfile> = {
+  general: {
+    threshold: 0.55,
+    topK: 5,
+    minResults: 2,
+  },
+  generation: {
+    threshold: 0.57,
+    topK: 4,
+    minResults: 2,
+    tags: ['image', 'video', 'prompt', 'generation', 'model', 'lora', 'workflow'],
+  },
+  growth: {
+    threshold: 0.56,
+    topK: 4,
+    minResults: 2,
+    tags: ['growth', 'monetization', 'pricing', 'sales', 'traffic', 'conversion'],
+  },
+  platform: {
+    threshold: 0.56,
+    topK: 4,
+    minResults: 2,
+    tags: ['tiktok', 'instagram', 'onlyfans', 'reddit', 'youtube', 'platform', 'policy'],
+  },
+  research: {
+    threshold: 0.56,
+    topK: 4,
+    minResults: 2,
+    tags: ['research', 'benchmark', 'trend', 'news', 'statistics', 'market'],
+  },
+};
+
+const inferKnowledgeIntent = (query: string): KnowledgeIntent => {
+  const normalized = String(query || '').trim().toLowerCase();
+  if (!normalized) return 'general';
+  if (GENERATION_QUERY_PATTERN.test(normalized)) return 'generation';
+  if (GROWTH_QUERY_PATTERN.test(normalized)) return 'growth';
+  if (PLATFORM_QUERY_PATTERN.test(normalized)) return 'platform';
+  if (RESEARCH_QUERY_PATTERN.test(normalized)) return 'research';
+  return 'general';
+};
+
+const resolveKnowledgeIntent = (
+  query: string,
+  intentHint?: KnowledgeContextOptions['intentHint']
+): KnowledgeIntent => {
+  if (intentHint && intentHint !== 'auto') return intentHint;
+  return inferKnowledgeIntent(query);
+};
+
+const dedupeResults = (results: SearchResult[]): SearchResult[] => {
+  const seen = new Set<string>();
+  const deduped: SearchResult[] = [];
+  for (const result of results) {
+    if (!result?.chunk?.id || seen.has(result.chunk.id)) continue;
+    seen.add(result.chunk.id);
+    deduped.push(result);
+  }
+  return deduped;
+};
 
 /**
  * Search the knowledge base using semantic similarity
@@ -88,11 +170,35 @@ function stripMarkdown(text: string): string {
 export async function getKnowledgeContext(
   query: string,
   openaiApiKey: string,
-  maxTokens: number = 4000
+  maxTokens: number = 4000,
+  options: KnowledgeContextOptions = {}
 ): Promise<string> {
-  // Use hybrid search (vector + keyword) for best coverage
-  // Fetch only top 5 — quality over quantity
-  const results = await hybridSearch(query, openaiApiKey, { topK: 5 });
+  // Try intent-tagged retrieval first, then fall back to broad hybrid retrieval.
+  const resolvedIntent = resolveKnowledgeIntent(query, options.intentHint);
+  const profile = INTENT_SEARCH_PROFILES[resolvedIntent];
+
+  let targetedResults: SearchResult[] = [];
+  if (profile.tags && profile.tags.length > 0) {
+    try {
+      targetedResults = await searchKnowledge(
+        {
+          query,
+          topK: profile.topK,
+          threshold: profile.threshold,
+          tags: profile.tags,
+        },
+        openaiApiKey
+      );
+    } catch (error) {
+      console.warn('Intent-tagged knowledge search failed, falling back to hybrid:', error);
+    }
+  }
+
+  let results = targetedResults;
+  if (results.length < profile.minResults) {
+    const fallbackResults = await hybridSearch(query, openaiApiKey, { topK: 5 });
+    results = dedupeResults([...targetedResults, ...fallbackResults]).slice(0, 5);
+  }
 
   if (results.length === 0) {
     return '';
@@ -133,16 +239,16 @@ function estimateTokens(text: string): number {
 export async function hybridSearch(
   query: string,
   openaiApiKey: string,
-  options: { topK?: number; categories?: string[] } = {}
+  options: { topK?: number; categories?: string[]; tags?: string[] } = {}
 ): Promise<SearchResult[]> {
-  const { topK = 10, categories } = options;
+  const { topK = 10, categories, tags } = options;
 
   // Run semantic + keyword searches in parallel for speed
   const keywords = extractKeywords(query);
 
   const [semanticResults, { data: keywordData }] = await Promise.all([
     searchKnowledge(
-      { query, topK: topK * 2, threshold: 0.55, categories },
+      { query, topK: topK * 2, threshold: 0.55, categories, tags },
       openaiApiKey
     ),
     keywords.length > 0

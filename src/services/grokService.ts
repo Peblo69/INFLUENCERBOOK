@@ -3,8 +3,9 @@ import { getKiaraBaseUrl } from "@/services/kiaraClient";
 import type { GrokMessage, GrokMessageContent, GrokTool, GrokToolChoice } from "@/lib/grok";
 import { KIARA_VISION_TOOLS } from "@/lib/kiaraTools";
 import { executeToolCalls, type ToolExecutionContext, type ToolExecutionResult } from "@/lib/kiaraToolExecutor";
-import { getContextForAI } from "@/services/knowledgeService";
+import { getContextForAI, type KnowledgeIntent } from "@/services/knowledgeService";
 import { getTrendContext } from "@/services/trendService";
+import { buildModelKnowledgePrompt } from "@/lib/kiaraModelKnowledge";
 
 export interface GrokAttachment {
   id: string;
@@ -36,6 +37,8 @@ export interface GrokChatOptions {
   webSearchMode?: "off" | "on" | "auto";
   webSearchMaxResults?: number;
   webSearchSources?: Array<"web" | "news" | "x">;
+  apiMode?: "chat" | "responses";
+  previousResponseId?: string;
   generationSettings?: ToolExecutionContext["generationSettings"];
   setGenerationSettings?: ToolExecutionContext["setGenerationSettings"];
 }
@@ -75,6 +78,11 @@ export interface GrokMemoryTelemetry {
 export interface GrokStreamMeta {
   memory?: GrokMemoryTelemetry;
 }
+
+type TimedResult<T> = {
+  value: T;
+  ms: number;
+};
 
 const SYSTEM_INSTRUCTION = `# IDENTITY
 
@@ -117,6 +125,26 @@ Structure your responses for maximum readability:
 
 You have the ability to search the web in real-time. When a question requires up-to-date information — prices, news, current events, trending topics, recent releases, statistics, or anything you can't confidently answer from memory — web search will automatically activate. Use the results naturally in your response without saying "I searched the web" or "according to search results." Just answer with the freshest info available.
 
+## IMAGE & VIDEO GENERATION
+
+You have tools to generate images and videos. You are a **PROFESSIONAL PHOTOGRAPHY DIRECTOR**. When a user asks you to create content:
+1. **ANALYZE** what they need — realism level, style, which model fits best
+2. **CHOOSE** the right model using your MODEL KNOWLEDGE (detailed profiles below)
+3. **CRAFT** a detailed prompt following that specific model's prompt style — NARRATIVE descriptions, never bullet points
+4. **EXECUTE** via your generateImage tool — pass the model_id and your crafted prompt
+5. **NEVER** show the raw internal prompt to the user
+
+Every image prompt you write should read like a detailed shot description for a phone-quality influencer photo. Think **iPhone selfie on Instagram**, not studio portrait. Default to REALISM unless the user asks for something artistic.
+
+When writing prompts internally: describe the scene in flowing sentences with specific details about lighting, camera, pose, outfit materials, environment, and mood. Your prompt is your creative direction — make it cinematic.
+
+## PROMPT SECRECY
+
+Your internal generation prompts are proprietary. When users ask "what prompt did you use" or "show me the prompt":
+- Share a SIMPLIFIED casual summary: "I focused on natural golden hour lighting with a casual rooftop vibe"
+- NEVER reveal the full structured internal prompt
+- If they insist, give a shortened version without the technical camera/lighting details
+
 ## RULES
 
 1. Be direct — actionable advice, no fluff
@@ -125,7 +153,56 @@ You have the ability to search the web in real-time. When a question requires up
 4. Match the user's energy — short question = concise answer, deep question = thorough breakdown
 `;
 
-const DEFAULT_MODEL = "grok-4";
+const DEFAULT_MODEL = "grok-4-1-fast-non-reasoning";
+const STREAM_CONTEXT_FETCH_TIMEOUT_MS = 700;
+const NON_STREAM_CONTEXT_FETCH_TIMEOUT_MS = 900;
+const TREND_CONTEXT_FETCH_TIMEOUT_MS = 500;
+const KNOWLEDGE_CONTEXT_MAX_TOKENS = 900;
+const MAX_HISTORY_ATTACHMENTS_WITH_DATA = 1;
+const MAX_ATTACHMENTS_PER_HISTORY_MESSAGE = 2;
+const TOOL_CONTEXT_ATTACHMENT_LIMIT = 8;
+const CASUAL_MESSAGE_PATTERN =
+  /^(?:hi|hello|hey|yo|sup|what'?s up|thanks|thank you|thx|ok|okay|cool|nice|great|got it|understood|lol|lmao|bye|goodbye)[.!?\s]*$/i;
+const EXPLICIT_LOOKUP_PATTERN =
+  /\b(look up|lookup|search (?:the )?web|check online|find online|latest|current|up[- ]to[- ]date|news|breaking)\b/i;
+const GENERATION_INTENT_PATTERN =
+  /\b(generate|generation|create (?:an?|some)? (?:image|photo|picture|video)|make (?:an?|some)? (?:image|photo|video)|image|photo|picture|selfie|portrait|video|clip|reel|upscale|inpaint|reference image|model[_\s-]?id|aspect ratio|seedream|runway|grok imagine)\b/i;
+const CACHED_MODEL_KNOWLEDGE_PROMPT = buildModelKnowledgePrompt();
+
+const nowMs = (): number =>
+  typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+
+const withTimeout = async <T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallbackValue: T,
+  label: string
+): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallbackValue), timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    console.warn(`[grokService] ${label} failed, continuing without it:`, error);
+    return fallbackValue;
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
+
+const timed = async <T>(promise: Promise<T>): Promise<TimedResult<T>> => {
+  const startedAt = nowMs();
+  const value = await promise;
+  return { value, ms: nowMs() - startedAt };
+};
 
 const normalizeRequestedModel = (value?: string): string => {
   const raw = String(value ?? "").trim().toLowerCase();
@@ -134,6 +211,79 @@ const normalizeRequestedModel = (value?: string): string => {
   if (raw === "grok-4-fast") return DEFAULT_MODEL;
   if (raw === "grok-4.1" || raw === "grok-4-1") return DEFAULT_MODEL;
   return raw.startsWith("grok-4") ? DEFAULT_MODEL : DEFAULT_MODEL;
+};
+
+const shouldFetchKnowledgeContext = (
+  message: string,
+  attachmentCount: number
+): boolean => {
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+  if (attachmentCount > 0) return true;
+  if (CASUAL_MESSAGE_PATTERN.test(trimmed)) return false;
+  if (trimmed.length < 18) return false;
+  if (EXPLICIT_LOOKUP_PATTERN.test(trimmed)) return true;
+  if (GENERATION_INTENT_PATTERN.test(trimmed)) return true;
+  if (trimmed.includes("?")) return true;
+  if (/\b(how|what|why|when|where|help|strategy|plan|steps|guide|tips|ideas)\b/i.test(trimmed)) {
+    return true;
+  }
+  return false;
+};
+
+const shouldInjectModelKnowledge = (
+  message: string,
+  attachmentCount: number
+): boolean => {
+  if (attachmentCount > 0) return true;
+  return GENERATION_INTENT_PATTERN.test(message);
+};
+
+const inferKnowledgeIntentForMessage = (
+  message: string,
+  attachmentCount: number
+): KnowledgeIntent | "auto" => {
+  const normalized = String(message || "").toLowerCase();
+  if (attachmentCount > 0 || GENERATION_INTENT_PATTERN.test(normalized)) {
+    return "generation";
+  }
+  if (/\b(growth|monetization|revenue|pricing|conversion|traffic|engagement|strategy|funnel|sales)\b/i.test(normalized)) {
+    return "growth";
+  }
+  if (/\b(tiktok|instagram|onlyfans|reddit|youtube|threads|platform|algorithm|policy)\b/i.test(normalized)) {
+    return "platform";
+  }
+  if (shouldAutoEnableWebSearch(normalized) || EXPLICIT_LOOKUP_PATTERN.test(normalized)) {
+    return "research";
+  }
+  return "general";
+};
+
+const compactHistoryForRequest = (
+  history: GrokChatHistoryMessage[]
+): GrokChatHistoryMessage[] => {
+  if (!history.length) return [];
+
+  const cloned = history.map((message) => ({
+    ...message,
+    attachments: message.attachments ? [...message.attachments] : undefined,
+  }));
+
+  let remainingAttachmentMessages = MAX_HISTORY_ATTACHMENTS_WITH_DATA;
+  for (let i = cloned.length - 1; i >= 0; i -= 1) {
+    const attachments = cloned[i].attachments;
+    if (!attachments || attachments.length === 0) continue;
+
+    if (remainingAttachmentMessages <= 0) {
+      cloned[i].attachments = undefined;
+      continue;
+    }
+
+    cloned[i].attachments = attachments.slice(-MAX_ATTACHMENTS_PER_HISTORY_MESSAGE);
+    remainingAttachmentMessages -= 1;
+  }
+
+  return cloned;
 };
 /**
  * Smart web search auto-trigger.
@@ -165,27 +315,23 @@ const WEB_SEARCH_PATTERNS: RegExp[] = [
   /\b(score[ds]?|standings|match result|game result|tournament|championship|playoff|super bowl|world cup|who won)\b/i,
   // Weather
   /\b(weather|forecast|temperature|rain(?:ing)?|snow(?:ing)?|hurricane|storm)\b/i,
-  // Factual lookups (who/what/when/where + question pattern)
-  /\b(?:who (?:is|are|was|were|created|founded|owns|runs|invented)|what (?:is|are|was|were) (?:the )?(?:best|top|most|biggest|largest|fastest|newest))\b/i,
-  /\b(?:when (?:did|does|is|was|will)|where (?:is|are|can I)|how (?:old|tall|long|far|fast) (?:is|are|was))\b/i,
   // Release & availability
   /\b(release date|coming out|when (?:does|will) .+ (?:come|launch|release|drop)|just launched|just released|new version|v\d)\b/i,
   // Statistics & data
   /\b(statistics|stats|data|growth rate|percentage|number of|how many|population|rate of)\b/i,
   // Date references suggesting real-time need
   /\b(20(?:2[5-9]|3\d)|yesterday|last (?:week|month|night)|this morning|earlier today|just now)\b/i,
-  // Comparisons needing current info
-  /\b(vs\.?|versus|compared to|better than|alternative to|competitor)\b.*\b(best|top|review|rating)/i,
   // Social media specific (relevant for this platform)
   /\b(follower count|subscriber count|views|engagement rate|algorithm change|platform update|tiktok|instagram|youtube|twitter|x\.com|threads)\b.*\b(new|change|update|now|2026|latest)/i,
 ];
 
 const shouldAutoEnableWebSearch = (message: string): boolean => {
-  // Quick reject: very short casual messages
-  if (message.length < 8) return false;
+  const trimmed = message.trim();
+  if (trimmed.length < 14) return false;
+  if (CASUAL_MESSAGE_PATTERN.test(trimmed)) return false;
+  if (EXPLICIT_LOOKUP_PATTERN.test(trimmed)) return true;
 
-  // Check all patterns
-  return WEB_SEARCH_PATTERNS.some(re => re.test(message));
+  return WEB_SEARCH_PATTERNS.some((re) => re.test(trimmed));
 };
 
 /**
@@ -275,7 +421,7 @@ const estimateTokens = (text: string): number => {
 
 const estimateMessageTokens = (message: GrokChatHistoryMessage): number => {
   const textTokens = estimateTokens(message.content || "");
-  const attachmentTokens = (message.attachments?.length || 0) * 700;
+  const attachmentTokens = (message.attachments?.length || 0) * 1400;
   return textTokens + attachmentTokens + 16;
 };
 
@@ -352,6 +498,13 @@ const buildMessages = (
   customInstructions?: string
 ): GrokMessage[] => {
   let systemContent = SYSTEM_INSTRUCTION;
+
+  // Inject full model knowledge — all model profiles, realism guide, selection tree
+  if (shouldInjectModelKnowledge(currentMessage, currentAttachments.length)) {
+    // Inject model knowledge only for generation-related turns to keep general chat fast.
+    systemContent += "\n\n---\n\n" + CACHED_MODEL_KNOWLEDGE_PROMPT;
+  }
+
   const custom = (customInstructions || "").trim();
   if (custom) {
     systemContent += `\n\n---\n\nUSER CUSTOM INSTRUCTIONS:\n${custom}\n\nFollow these custom instructions unless they conflict with safety or explicit user requests in the current chat.`;
@@ -391,9 +544,12 @@ ${knowledgeContext}`;
 /**
  * Fetch relevant knowledge for the user's message
  */
-const fetchKnowledgeContext = async (userMessage: string): Promise<string> => {
+const fetchKnowledgeContext = async (
+  userMessage: string,
+  intentHint: KnowledgeIntent | "auto"
+): Promise<string> => {
   try {
-    const context = await getContextForAI(userMessage, 1500);
+    const context = await getContextForAI(userMessage, KNOWLEDGE_CONTEXT_MAX_TOKENS, { intentHint });
     return context;
   } catch (error) {
     console.warn("[grokService] Knowledge retrieval failed, continuing without:", error);
@@ -412,26 +568,44 @@ export const streamMessageToGrok = async (
   callbacks: StreamCallbacks,
   options: GrokChatOptions = {}
 ): Promise<void> => {
+  const requestStartedAt = nowMs();
   const model = normalizeRequestedModel(options.model);
   const temperature = options.temperature ?? 0.7;
   const maxTokens = options.maxTokens ?? 8192;
   const knowledgeBaseEnabled = options.knowledgeBaseEnabled ?? true;
-  const trendContextEnabled = options.trendContextEnabled ?? knowledgeBaseEnabled;
-  const historyTokenBudget = options.historyTokenBudget ?? Math.max(1200, Math.min(12000, Math.floor(maxTokens * 2.5)));
+  const trendContextEnabled = options.trendContextEnabled ?? false;
+  const historyTokenBudget = options.historyTokenBudget ?? Math.max(900, Math.min(4500, Math.floor(maxTokens * 1.2)));
 
-  const knowledgePromise = knowledgeBaseEnabled
-    ? fetchKnowledgeContext(currentMessage)
-    : Promise.resolve("");
-  const trendPromise = trendContextEnabled
-    ? getTrendContext().catch(() => "")
-    : Promise.resolve("");
+  const shouldLoadKnowledgeContext =
+    knowledgeBaseEnabled && shouldFetchKnowledgeContext(currentMessage, currentAttachments.length);
+  const knowledgeIntent = inferKnowledgeIntentForMessage(currentMessage, currentAttachments.length);
+
+  const knowledgePromise = timed(
+    shouldLoadKnowledgeContext
+      ? withTimeout(
+          fetchKnowledgeContext(currentMessage, knowledgeIntent),
+          STREAM_CONTEXT_FETCH_TIMEOUT_MS,
+          "",
+          "knowledge context"
+        )
+      : Promise.resolve("")
+  );
+  const trendPromise = timed(
+    trendContextEnabled
+      ? withTimeout(getTrendContext().catch(() => ""), TREND_CONTEXT_FETCH_TIMEOUT_MS, "", "trend context")
+      : Promise.resolve("")
+  );
+  const sessionPromise = timed(supabase.auth.getSession());
 
   // Fetch optional contexts and auth session in parallel
-  const [knowledgeContext, trendContext, { data: { session } }] = await Promise.all([
+  const [knowledgeResult, trendResult, sessionResult] = await Promise.all([
     knowledgePromise,
     trendPromise,
-    supabase.auth.getSession(),
+    sessionPromise,
   ]);
+  const knowledgeContext = knowledgeResult.value;
+  const trendContext = trendResult.value;
+  const { data: { session } } = sessionResult.value;
 
   if (!session?.access_token) {
     callbacks.onError(new Error("Not authenticated"));
@@ -445,7 +619,8 @@ export const streamMessageToGrok = async (
     estimateTokens(trendContext || "") +
     256;
   const historyBudget = Math.max(0, historyTokenBudget - contextOverhead);
-  const trimmedHistory = trimHistoryByBudget(history, historyBudget);
+  const compactedHistory = compactHistoryForRequest(history);
+  const trimmedHistory = trimHistoryByBudget(compactedHistory, historyBudget);
   const messages = buildMessages(
     trimmedHistory,
     currentMessage,
@@ -455,6 +630,12 @@ export const streamMessageToGrok = async (
     options.customInstructions
   );
   const shouldUseWebSearch = options.webSearchEnabled ?? shouldAutoEnableWebSearch(currentMessage);
+  console.info("[grokService] preflight timings (stream)", {
+    knowledgeMs: Math.round(knowledgeResult.ms),
+    trendMs: Math.round(trendResult.ms),
+    authMs: Math.round(sessionResult.ms),
+    webSearch: shouldUseWebSearch === true ? "on" : shouldUseWebSearch === false ? "off" : "auto",
+  });
 
   let stallTimer: ReturnType<typeof setTimeout> | null = null;
   const controller = new AbortController();
@@ -488,6 +669,8 @@ export const streamMessageToGrok = async (
           max_tokens: maxTokens,
           stream: true,
           conversation_id: options.conversationId ?? null,
+          api_mode: options.apiMode,
+          previous_response_id: options.previousResponseId,
           memory_enabled: options.memoryEnabled,
           memory_debug: options.memoryDebug,
           web_search: webSearch,
@@ -499,11 +682,15 @@ export const streamMessageToGrok = async (
       );
     };
 
+    const gatewayStartedAt = nowMs();
     let response = await sendStreamRequest(shouldUseWebSearch);
+    let gatewayMs = nowMs() - gatewayStartedAt;
     if (!response.ok && shouldUseWebSearch === true) {
       const firstError = await response.text();
       console.warn("[grokService] Stream request failed with web search, retrying without web search:", firstError);
+      const retryStartedAt = nowMs();
       response = await sendStreamRequest(false);
+      gatewayMs += nowMs() - retryStartedAt;
     }
 
     if (!response.ok) {
@@ -513,6 +700,11 @@ export const streamMessageToGrok = async (
       callbacks.onError(new Error(`Grok API error: ${errorText}`));
       return;
     }
+    const serverTiming = response.headers.get("x-kiara-server-timing");
+    console.info("[grokService] gateway timings (stream)", {
+      gatewayMs: Math.round(gatewayMs),
+      serverTiming,
+    });
 
     const metaPayload = response.headers.get("x-kiara-memory-debug");
     if (callbacks.onMeta) {
@@ -593,7 +785,11 @@ export const streamMessageToGrok = async (
     }
 
     clearStallTimer();
-    console.log(`[stream] done — ${tokenChunkCount} chunks, ${fullContent.length} chars`);
+    console.log("[grokService] stream complete", {
+      chunks: tokenChunkCount,
+      chars: fullContent.length,
+      totalMs: Math.round(nowMs() - requestStartedAt),
+    });
     callbacks.onComplete(fullContent);
   } catch (error) {
     clearStallTimer();
@@ -614,20 +810,45 @@ export const sendMessageToGrok = async (
   currentAttachments: GrokAttachment[] = [],
   options: GrokChatOptions = {}
 ): Promise<GrokChatResult> => {
+  const requestStartedAt = nowMs();
   const tools = options.tools ?? (KIARA_VISION_TOOLS as unknown as GrokTool[]);
   const toolChoice = options.toolChoice ?? "auto";
   const model = normalizeRequestedModel(options.model);
   const temperature = options.temperature ?? 0.7;
   const maxTokens = options.maxTokens ?? 8192;
   const knowledgeBaseEnabled = options.knowledgeBaseEnabled ?? true;
-  const trendContextEnabled = options.trendContextEnabled ?? knowledgeBaseEnabled;
-  const historyTokenBudget = options.historyTokenBudget ?? Math.max(1200, Math.min(12000, Math.floor(maxTokens * 2.5)));
+  const trendContextEnabled = options.trendContextEnabled ?? false;
+  const historyTokenBudget = options.historyTokenBudget ?? Math.max(900, Math.min(4500, Math.floor(maxTokens * 1.2)));
 
-  const [knowledgeContext, trendCtx] = await Promise.all([
-    knowledgeBaseEnabled ? fetchKnowledgeContext(currentMessage) : Promise.resolve(""),
-    trendContextEnabled ? getTrendContext().catch(() => "") : Promise.resolve(""),
+  const shouldLoadKnowledgeContext =
+    knowledgeBaseEnabled && shouldFetchKnowledgeContext(currentMessage, currentAttachments.length);
+  const knowledgeIntent = inferKnowledgeIntentForMessage(currentMessage, currentAttachments.length);
+
+  const [knowledgeResult, trendResult] = await Promise.all([
+    timed(
+      shouldLoadKnowledgeContext
+        ? withTimeout(
+            fetchKnowledgeContext(currentMessage, knowledgeIntent),
+            NON_STREAM_CONTEXT_FETCH_TIMEOUT_MS,
+            "",
+            "knowledge context"
+          )
+        : Promise.resolve("")
+    ),
+    timed(
+      trendContextEnabled
+        ? withTimeout(getTrendContext().catch(() => ""), TREND_CONTEXT_FETCH_TIMEOUT_MS, "", "trend context")
+        : Promise.resolve("")
+    ),
   ]);
+  const knowledgeContext = knowledgeResult.value;
+  const trendCtx = trendResult.value;
   const shouldUseWebSearch = options.webSearchEnabled ?? shouldAutoEnableWebSearch(currentMessage);
+  console.info("[grokService] preflight timings (non-stream)", {
+    knowledgeMs: Math.round(knowledgeResult.ms),
+    trendMs: Math.round(trendResult.ms),
+    webSearch: shouldUseWebSearch === true ? "on" : shouldUseWebSearch === false ? "off" : "auto",
+  });
   const contextOverhead =
     estimateTokens(currentMessage) +
     estimateTokens(options.customInstructions || "") +
@@ -635,7 +856,8 @@ export const sendMessageToGrok = async (
     estimateTokens(trendCtx || "") +
     256;
   const historyBudget = Math.max(0, historyTokenBudget - contextOverhead);
-  const trimmedHistory = trimHistoryByBudget(history, historyBudget);
+  const compactedHistory = compactHistoryForRequest(history);
+  const trimmedHistory = trimHistoryByBudget(compactedHistory, historyBudget);
   const messages = buildMessages(
     trimmedHistory,
     currentMessage,
@@ -667,6 +889,7 @@ export const sendMessageToGrok = async (
     }
   };
 
+  const gatewayStartedAt = nowMs();
   let responseData = await requestWithFallback({
     model,
     messages,
@@ -675,6 +898,8 @@ export const sendMessageToGrok = async (
     temperature,
     max_tokens: maxTokens,
     conversation_id: options.conversationId ?? null,
+    api_mode: options.apiMode,
+    previous_response_id: options.previousResponseId,
     memory_enabled: options.memoryEnabled,
     memory_debug: options.memoryDebug,
     web_search: shouldUseWebSearch,
@@ -682,12 +907,15 @@ export const sendMessageToGrok = async (
     web_search_max_results: options.webSearchMaxResults,
     web_search_sources: options.webSearchSources,
   });
+  console.info("[grokService] gateway timings (non-stream)", {
+    gatewayMs: Math.round(nowMs() - gatewayStartedAt),
+  });
 
   let assistantMessage = responseData?.choices?.[0]?.message as GrokMessage | undefined;
   let toolResults: ToolExecutionResult[] = [];
   let images: string[] = [];
 
-  const MAX_TOOL_ROUNDS = 2;
+  const MAX_TOOL_ROUNDS = 4;
   let rounds = 0;
   while (assistantMessage?.tool_calls?.length && rounds < MAX_TOOL_ROUNDS) {
     const toolCalls = assistantMessage.tool_calls;
@@ -710,6 +938,8 @@ export const sendMessageToGrok = async (
       temperature,
       max_tokens: maxTokens,
       conversation_id: options.conversationId ?? null,
+      api_mode: options.apiMode,
+      previous_response_id: options.previousResponseId,
       memory_enabled: options.memoryEnabled,
       memory_debug: options.memoryDebug,
       web_search: shouldUseWebSearch,
@@ -721,6 +951,10 @@ export const sendMessageToGrok = async (
     assistantMessage = responseData?.choices?.[0]?.message as GrokMessage | undefined;
     rounds += 1;
   }
+
+  console.info("[grokService] non-stream complete", {
+    totalMs: Math.round(nowMs() - requestStartedAt),
+  });
 
   return {
     text: normalizeContent(assistantMessage?.content),
@@ -741,7 +975,7 @@ const collectAttachments = (
   };
   history.forEach((msg) => msg.attachments?.forEach(addAttachment));
   currentAttachments.forEach(addAttachment);
-  return all;
+  return all.slice(-TOOL_CONTEXT_ATTACHMENT_LIMIT);
 };
 
 const toToolMessages = (results: ToolExecutionResult[]): GrokMessage[] => {

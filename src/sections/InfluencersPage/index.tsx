@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { InfluencersSidebar } from "./components/InfluencersSidebar";
+import { ModelsSidebar } from "../ModelsPage/components/ModelsSidebar";
 import { 
   Plus, X, Upload, Sparkles, ChevronRight, Check, Instagram, 
   Twitter, User, Image, Palette, Link2, Eye, Wand2, 
@@ -891,12 +891,12 @@ export const InfluencersPage = () => {
   };
 
   return (
-    <div className="flex h-screen bg-black overflow-hidden">
-      <NotificationContainer />
-      <InfluencersSidebar />
+    <div className="flex h-screen w-full bg-black overflow-hidden font-sans text-white">
+      <ModelsSidebar />
 
       {/* Main Content */}
-      <main className="flex-1 min-w-0 h-full relative overflow-hidden">
+      <main className="flex-1 flex flex-col min-w-0 h-full relative overflow-hidden">
+        <NotificationContainer />
         {/* Background Effects */}
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-500/5 rounded-full blur-[120px]" />
@@ -992,7 +992,7 @@ export const InfluencersPage = () => {
         )}
 
         {/* Content Area */}
-        <div className="relative z-10 h-[calc(100vh-80px)] overflow-y-auto scrollbar-hide">
+        <div className="relative z-10 flex-1 min-h-0 overflow-y-auto scrollbar-hide">
           {renderStepContent()}
         </div>
       </main>

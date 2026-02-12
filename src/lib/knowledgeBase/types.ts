@@ -51,3 +51,14 @@ export interface KnowledgeSearchOptions {
   categories?: string[];
   tags?: string[];
 }
+
+export type KnowledgeIntent =
+  | 'general'
+  | 'generation'
+  | 'growth'
+  | 'platform'
+  | 'research';
+
+export interface KnowledgeContextOptions {
+  intentHint?: KnowledgeIntent | 'auto';
+}

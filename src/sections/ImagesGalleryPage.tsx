@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { ModelsSidebar } from "@/sections/ModelsPage/components/ModelsSidebar";
 import { supabase } from "@/lib/supabase";
 import { useI18n } from "@/contexts/I18nContext";
 import {
   Image as ImageIcon,
+  Film,
   RefreshCw,
   Download,
   Heart,
@@ -23,13 +25,50 @@ const GRID_CONFIGS = [
 
 const GALLERY_GRID_KEY = "kiara-gallery-grid";
 
+type AssetType = "image" | "video";
+type FilterType = "all" | "image" | "video" | "liked";
+
 interface GeneratedImage {
   id: string;
   imageUrl: string;
   prompt: string;
   createdAt: string;
   model?: string;
+  assetType: AssetType;
+  liked?: boolean;
 }
+
+const detectAssetType = (url: string): AssetType => {
+  const lower = url.toLowerCase();
+  if (lower.includes("runway-video/") || lower.includes("animate-x/") || lower.includes("grok-video/") || lower.match(/\.(mp4|webm|mov)(\?|$)/)) return "video";
+  return "image";
+};
+
+/** Pretty-print a model ID: strip "kiara-", remove hyphens, title-case */
+const formatModelName = (raw?: string): string => {
+  if (!raw) return "Kiara Z MAX";
+  const NAMES: Record<string, string> = {
+    "kiara-z-max": "Kiara Z MAX",
+    "kiara-grok-image": "Grok Image",
+    "kiara-grok-imagine": "Grok Imagine",
+    "kiara-grok-imagine-edit": "Grok Imagine",
+    "grok-imagine": "Grok Imagine",
+    "kiara-seedream-v4": "Seedream 4",
+    "kiara-seedream-v4-edit": "Seedream 4",
+    "seedream-4": "Seedream 4",
+    "kiara-seedream": "Seedream 4.5",
+    "kiara-seedream-edit": "Seedream 4.5",
+    "seedream-45": "Seedream 4.5",
+    "kiara-vision": "Kiara Vision",
+    "kiara-vision-max": "Kiara Vision MAX",
+  };
+  if (NAMES[raw]) return NAMES[raw];
+  return raw
+    .replace(/^kiara-/, "")
+    .split("-")
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+};
 
 const resolveImageUrl = (path: string) => {
   if (!path) return "";
@@ -38,11 +77,12 @@ const resolveImageUrl = (path: string) => {
   return data.publicUrl;
 };
 
-const downloadImage = async (url: string) => {
+const downloadAsset = async (url: string) => {
   try {
     const res = await fetch(url);
     const blob = await res.blob();
-    const ext = blob.type.includes("png") ? ".png" : blob.type.includes("webp") ? ".webp" : ".jpg";
+    const t = blob.type;
+    const ext = t.includes("mp4") ? ".mp4" : t.includes("webm") ? ".webm" : t.includes("png") ? ".png" : t.includes("webp") ? ".webp" : ".jpg";
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `kiara-${Date.now()}${ext}`;
@@ -62,11 +102,33 @@ export const ImagesGalleryPage = () => {
   const [totalImages, setTotalImages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [gridIndex, setGridIndex] = useState(() => {
     const saved = localStorage.getItem(GALLERY_GRID_KEY);
     return saved ? Math.min(Number(saved), GRID_CONFIGS.length - 1) : 0;
   });
   const grid = GRID_CONFIGS[gridIndex];
+  const isCompactGrid = grid.cols >= 8;
+  const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  const openContextMenu = useCallback((id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setContextMenu({ id, x: rect.right, y: rect.bottom + 4 });
+  }, []);
+
+  // Close context menu on outside click or scroll
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const handleClick = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) close();
+    };
+    document.addEventListener("mousedown", handleClick);
+    window.addEventListener("scroll", close, true);
+    return () => { document.removeEventListener("mousedown", handleClick); window.removeEventListener("scroll", close, true); };
+  }, [contextMenu]);
 
   const totalPages = Math.ceil(totalImages / IMAGES_PER_PAGE);
 
@@ -92,13 +154,18 @@ export const ImagesGalleryPage = () => {
 
       if (error) { console.error("Error fetching images:", error); setImages([]); return; }
 
-      setImages((data || []).map((row: any) => ({
-        id: row.id,
-        imageUrl: resolveImageUrl(row.image_url),
-        prompt: row.ai_generation_jobs?.prompt || "",
-        createdAt: row.created_at,
-        model: row.ai_generation_jobs?.model_id || undefined,
-      })));
+      setImages((data || []).map((row: any) => {
+        const url = resolveImageUrl(row.image_url);
+        return {
+          id: row.id,
+          imageUrl: url,
+          prompt: row.ai_generation_jobs?.prompt || "",
+          createdAt: row.created_at,
+          model: row.ai_generation_jobs?.model_id || undefined,
+          assetType: detectAssetType(row.image_url || url),
+          liked: false,
+        };
+      }));
     } catch (error) {
       console.error("Error fetching images:", error);
     } finally {
@@ -107,6 +174,16 @@ export const ImagesGalleryPage = () => {
   };
 
   useEffect(() => { fetchImages(); }, [currentPage]);
+
+  const filteredImages = activeFilter === "all"
+    ? images
+    : activeFilter === "liked"
+      ? images.filter((img) => img.liked)
+      : images.filter((img) => img.assetType === activeFilter);
+
+  const toggleLike = (id: string) => {
+    setImages((prev) => prev.map((img) => img.id === id ? { ...img, liked: !img.liked } : img));
+  };
 
   const handleDelete = async (imageId: string) => {
     try {
@@ -121,27 +198,55 @@ export const ImagesGalleryPage = () => {
   };
 
   return (
-    <div className="fixed inset-0 h-full flex overflow-hidden font-sans bg-black text-white selection:bg-white/20 selection:text-white">
+    <div className="flex h-screen w-full overflow-hidden font-sans bg-black text-white selection:bg-white/20 selection:text-white">
       {/* Sidebar */}
       <ModelsSidebar />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 relative bg-black">
+      <div className="flex-1 flex flex-col min-w-0 h-full relative bg-black">
         {/* Header */}
         <header className="h-16 flex items-center justify-between px-8 border-b border-white/5 bg-black/50 backdrop-blur-xl sticky top-0 z-20">
           <div className="flex items-center gap-4">
-            <h1 className="text-sm font-bold uppercase tracking-widest text-white">{t("Gallery")}</h1>
+            <h1 className="text-sm font-bold uppercase tracking-widest text-white">{t("Assets")}</h1>
             <div className="h-4 w-px bg-white/10" />
             <span className="text-[10px] font-mono text-zinc-500 uppercase">
-              {t("{{count}} assets", { count: totalImages })}
+              {t("{{count}} items", { count: totalImages })}
             </span>
           </div>
-          <button
-            onClick={fetchImages}
-            className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/5 transition-all text-xs font-bold uppercase tracking-wider flex items-center gap-2"
-          >
-            <RefreshCw size={12} /> {t("Refresh")}
-          </button>
+
+          {/* Filter pills */}
+          <div className="flex items-center gap-1">
+            <div className="flex bg-white/[0.03] p-0.5 rounded-full border border-white/[0.06]">
+              {([
+                { key: "all" as FilterType, label: t("All") },
+                { key: "image" as FilterType, label: t("Image") },
+                { key: "video" as FilterType, label: t("Video") },
+                { key: "liked" as FilterType, label: t("Liked") },
+              ]).map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveFilter(key)}
+                  className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
+                    activeFilter === key
+                      ? "bg-white text-black shadow-lg"
+                      : "text-zinc-500 hover:text-white"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="w-px h-5 bg-white/[0.06] mx-2" />
+
+            <button
+              onClick={fetchImages}
+              className="w-8 h-8 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] flex items-center justify-center text-zinc-500 hover:text-white border border-white/[0.06] transition-all"
+              title={t("Refresh")}
+            >
+              <RefreshCw size={13} />
+            </button>
+          </div>
         </header>
 
         {/* Content */}
@@ -152,13 +257,20 @@ export const ImagesGalleryPage = () => {
                 <div className="w-10 h-10 border-2 border-white/10 border-t-white rounded-full animate-spin" />
                 <p className="text-xs text-zinc-500 uppercase tracking-widest">{t("Loading Library...")}</p>
               </div>
-            ) : images.length === 0 ? (
+            ) : filteredImages.length === 0 ? (
               <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-zinc-500">
                 <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center">
-                  <ImageIcon size={24} />
+                  {activeFilter === "video" ? <Film size={24} /> : activeFilter === "liked" ? <Heart size={24} /> : <ImageIcon size={24} />}
                 </div>
-                <p className="text-sm">{t("No images found")}</p>
-                <p className="text-xs text-zinc-600">{t("Generate your first image from the Models page")}</p>
+                <p className="text-sm">
+                  {activeFilter === "all" ? t("No assets yet") : activeFilter === "liked" ? t("No liked assets") : t("No {{type}} assets found", { type: activeFilter })}
+                </p>
+                {activeFilter === "all" && <p className="text-xs text-zinc-600">{t("Generate your first image from the Models page")}</p>}
+                {activeFilter !== "all" && (
+                  <button onClick={() => setActiveFilter("all")} className="text-xs text-white/40 hover:text-white/70 transition-colors underline underline-offset-4 decoration-white/10 hover:decoration-white/30">
+                    {t("Show all assets")}
+                  </button>
+                )}
               </div>
             ) : (
               <>
@@ -198,46 +310,83 @@ export const ImagesGalleryPage = () => {
                   ))}
                 </div>
                 <div className={`grid ${grid.gap}`} style={{ gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))` }}>
-                  {images.map((img) => (
+                  {filteredImages.map((img) => (
                     <div
                       key={img.id}
                       className={`aspect-square bg-[#0a0a0a] ${grid.radius} overflow-hidden relative group cursor-pointer border border-white/[0.04] hover:border-white/[0.12] transition-all duration-500`}
                     >
-                      <img
-                        src={img.imageUrl}
-                        onClick={() => setSelectedImage(img)}
-                        className="w-full h-full object-cover transition-all duration-700 group-hover:scale-[1.03]"
-                        loading="lazy"
-                      />
-                      <div className="absolute bottom-0 left-0 right-0 px-3 pb-2.5 pt-8 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none">
-                        <span className="text-[10px] font-medium text-white/70 tracking-wide">{img.model || "Kiara Z MAX"}</span>
-                      </div>
-                      <div className="absolute top-2.5 right-2.5 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
+                      {img.assetType === "video" ? (
+                        <video
+                          src={img.imageUrl}
+                          onClick={() => setSelectedImage(img)}
+                          className="w-full h-full object-cover transition-all duration-700 group-hover:scale-[1.03]"
+                          muted
+                          loop
+                          playsInline
+                          onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
+                          onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
+                        />
+                      ) : (
+                        <img
+                          src={img.imageUrl}
+                          onClick={() => setSelectedImage(img)}
+                          className="w-full h-full object-cover transition-all duration-700 group-hover:scale-[1.03]"
+                          loading="lazy"
+                        />
+                      )}
+                      {/* Asset type badge */}
+                      {img.assetType === "video" && (
+                        <div className="absolute top-2.5 left-2.5 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 flex items-center gap-1">
+                          <Film size={9} className="text-white/60" />
+                          <span className="text-[8px] font-bold text-white/50 uppercase">Video</span>
+                        </div>
+                      )}
+                      {/* Liked indicator */}
+                      {img.liked && (
+                        <div className="absolute top-2.5 left-2.5 w-5 h-5 rounded-full bg-pink-500/20 backdrop-blur-sm flex items-center justify-center" style={img.assetType === "video" ? { left: "auto", right: "auto", top: "2.5rem" } : {}}>
+                          <Heart size={10} className="text-pink-400 fill-pink-400" />
+                        </div>
+                      )}
+                      {!isCompactGrid && (
+                        <div className="absolute bottom-0 left-0 right-0 px-3 pb-2.5 pt-8 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none">
+                          <span className="text-[10px] font-bold text-white tracking-wide drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]">{formatModelName(img.model)}</span>
+                        </div>
+                      )}
+                      {isCompactGrid ? (
+                        /* ── Compact: single 3-dot → portal dropdown ── */
                         <button
-                          onClick={(e) => { e.stopPropagation(); }}
-                          className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-pink-400 hover:border-pink-400/30 hover:bg-pink-500/10 transition-all duration-200"
+                          onClick={(e) => openContextMenu(img.id, e)}
+                          className="absolute bottom-1 right-1 w-5 h-5 rounded-full bg-black/70 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white/70 hover:text-white opacity-0 group-hover:opacity-100 transition-all duration-150"
                         >
-                          <Heart size={12} />
+                          <Ellipsis size={10} />
                         </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); downloadImage(img.imageUrl); }}
-                          className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:border-white/30 transition-all duration-200"
-                        >
-                          <Download size={12} />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDelete(img.id); }}
-                          className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-red-400 hover:border-red-400/30 hover:bg-red-500/10 transition-all duration-200"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); }}
-                          className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:border-white/30 transition-all duration-200"
-                        >
-                          <Ellipsis size={12} />
-                        </button>
-                      </div>
+                      ) : (
+                        /* ── Large: individual action buttons ── */
+                        <div className="absolute top-2.5 right-2.5 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleLike(img.id); }}
+                            className={`w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border flex items-center justify-center transition-all duration-200 ${
+                              img.liked
+                                ? "border-pink-400/30 bg-pink-500/10 text-pink-400"
+                                : "border-white/10 text-white/60 hover:text-pink-400 hover:border-pink-400/30 hover:bg-pink-500/10"
+                            }`}
+                          >
+                            <Heart size={12} className={img.liked ? "fill-pink-400" : ""} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); downloadAsset(img.imageUrl); }}
+                            className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:border-white/30 transition-all duration-200"
+                          >
+                            <Download size={12} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDelete(img.id); }}
+                            className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-red-400 hover:border-red-400/30 hover:bg-red-500/10 transition-all duration-200"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -285,7 +434,18 @@ export const ImagesGalleryPage = () => {
 
           <div className="flex items-center gap-16 max-w-[90vw] max-h-[88vh] px-12" onClick={(e) => e.stopPropagation()}>
             <div className="flex-shrink-0 max-w-[60vw] max-h-[85vh] flex items-center justify-center">
-              <img src={selectedImage.imageUrl} className="max-w-full max-h-[85vh] object-contain rounded-xl" alt="" />
+              {selectedImage.assetType === "video" ? (
+                <video
+                  src={selectedImage.imageUrl}
+                  className="max-w-full max-h-[85vh] rounded-xl"
+                  controls
+                  autoPlay
+                  loop
+                  playsInline
+                />
+              ) : (
+                <img src={selectedImage.imageUrl} className="max-w-full max-h-[85vh] object-contain rounded-xl" alt="" />
+              )}
             </div>
 
             <div className="flex-shrink-0 w-[280px] flex flex-col justify-center py-8 space-y-10">
@@ -305,7 +465,7 @@ export const ImagesGalleryPage = () => {
               <div className="space-y-5">
                 <div>
                   <p className="text-[10px] font-bold text-white/25 uppercase tracking-[0.2em] mb-1.5">{t("Model")}</p>
-                  <p className="text-[13px] text-white/90 font-medium">{selectedImage.model || "Kiara Z MAX"}</p>
+                  <p className="text-[13px] text-white font-semibold">{formatModelName(selectedImage.model)}</p>
                 </div>
                 {selectedImage.createdAt && (
                   <div>
@@ -323,7 +483,7 @@ export const ImagesGalleryPage = () => {
 
               <div className="flex items-center gap-3 pt-2">
                 <button
-                  onClick={() => downloadImage(selectedImage.imageUrl)}
+                  onClick={() => downloadAsset(selectedImage.imageUrl)}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white text-black text-[11px] font-bold uppercase tracking-wider hover:bg-zinc-200 transition-all duration-200"
                 >
                   <Download size={13} /> {t("Download")}
@@ -341,6 +501,32 @@ export const ImagesGalleryPage = () => {
             </div>
           </div>
         </div>
+      )}
+      {/* Portal context menu for compact grid */}
+      {contextMenu && createPortal(
+        <div
+          ref={contextMenuRef}
+          className="fixed z-[9999] min-w-[110px] py-1 rounded-lg bg-[#1c1c1c] border border-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.6)] animate-fadeIn"
+          style={{ top: contextMenu.y, left: contextMenu.x, transform: "translateX(-100%)" }}
+        >
+          {(() => {
+            const img = filteredImages.find(i => i.id === contextMenu.id);
+            if (!img) return null;
+            return <>
+              <button onClick={() => { toggleLike(img.id); setContextMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-white/70 hover:text-pink-400 hover:bg-white/[0.04] transition-colors">
+                <Heart size={11} className={img.liked ? "fill-pink-400 text-pink-400" : ""} /> {img.liked ? "Unlike" : "Like"}
+              </button>
+              <button onClick={() => { downloadAsset(img.imageUrl); setContextMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-white/70 hover:text-white hover:bg-white/[0.04] transition-colors">
+                <Download size={11} /> Download
+              </button>
+              <div className="my-0.5 border-t border-white/[0.06]" />
+              <button onClick={() => { handleDelete(img.id); setContextMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-red-400/80 hover:text-red-400 hover:bg-red-500/[0.06] transition-colors">
+                <Trash2 size={11} /> Delete
+              </button>
+            </>;
+          })()}
+        </div>,
+        document.body
       )}
     </div>
   );

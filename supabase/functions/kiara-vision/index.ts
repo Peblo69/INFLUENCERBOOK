@@ -193,6 +193,47 @@ const extFromContentType = (ct: string | null, fallback = "jpg"): string => {
   return fallback;
 };
 
+/** Upload a data URI to Supabase storage and return a signed URL (for large images that would exceed RunwayML payload limits) */
+const uploadDataUriToStorage = async (
+  supabase: any,
+  userId: string,
+  dataUri: string,
+): Promise<string> => {
+  // Parse data URI: data:[<mediatype>];base64,<data>
+  const match = dataUri.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) throw new Error("Invalid data URI format");
+
+  const contentType = match[1];
+  const base64Data = match[2];
+  const ext = extFromContentType(contentType);
+  const bytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+  const filePath = `${userId}/video-input/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+
+  const { data, error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(filePath, bytes, {
+      contentType,
+      cacheControl: "3600",
+      upsert: false,
+    });
+
+  if (error || !data?.path) {
+    console.error("[kiara-runway] Failed to upload input image:", error);
+    throw new Error("Failed to upload input image to storage");
+  }
+
+  const { data: signed, error: signedErr } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .createSignedUrl(data.path, 3600);
+
+  if (signedErr || !signed?.signedUrl) {
+    throw new Error("Failed to create signed URL for input image");
+  }
+
+  console.log(`[kiara-runway] Uploaded input image: ${filePath} (${bytes.length} bytes)`);
+  return signed.signedUrl;
+};
+
 /** Download RunwayML outputs and rehost to Supabase storage, return signed URLs */
 const rehostToSupabase = async (
   supabase: any,
@@ -650,6 +691,8 @@ serve(async (req) => {
           ratio,
           seed: body.seed ?? null,
           reference_count: resolvedReferences.length,
+          client_request_id:
+            typeof body.client_request_id === "string" ? body.client_request_id : null,
         },
         sourceReferenceUris
       );
@@ -750,8 +793,14 @@ serve(async (req) => {
     // IMAGE TO VIDEO (slow — returns task_id, frontend polls)
     // ════════════════════════════════════════════════════════════════════════
     if (action === "image-to-video") {
-      const promptImage = body.promptImage;
+      let promptImage = body.promptImage;
       if (!promptImage) throw new Error("Missing required field: promptImage");
+
+      // If promptImage is a data URI, upload to storage first (avoids RunwayML 413 payload too large)
+      if (String(promptImage).startsWith("data:")) {
+        console.log("[kiara-runway] image-to-video: uploading data URI to storage...");
+        promptImage = await uploadDataUriToStorage(supabase, user.id, String(promptImage));
+      }
 
       const payload: Record<string, unknown> = {
         model: "gen4_turbo",
@@ -1088,6 +1137,7 @@ serve(async (req) => {
             result.images = rehosted.signedUrls;
           }
           result.output = rehosted.signedUrls;
+          result.storagePaths = rehosted.paths;
         }
       }
 

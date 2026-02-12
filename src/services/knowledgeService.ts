@@ -12,7 +12,14 @@ import {
   listDocuments,
   deleteDocument,
 } from '@/lib/knowledgeBase';
-import type { SearchResult, KnowledgeSearchOptions } from '@/lib/knowledgeBase';
+import type {
+  SearchResult,
+  KnowledgeSearchOptions,
+  KnowledgeContextOptions,
+  KnowledgeIntent,
+} from '@/lib/knowledgeBase';
+
+export type { KnowledgeIntent };
 
 // Get embedding API key from environment (OpenRouter → text-embedding-3-small)
 const getEmbeddingKey = () => {
@@ -41,10 +48,11 @@ export async function queryKnowledge(
  */
 export async function getContextForAI(
   userQuery: string,
-  maxTokens: number = 4000
+  maxTokens: number = 4000,
+  options: KnowledgeContextOptions = {}
 ): Promise<string> {
   try {
-    const context = await getKnowledgeContext(userQuery, getEmbeddingKey(), maxTokens);
+    const context = await getKnowledgeContext(userQuery, getEmbeddingKey(), maxTokens, options);
     return context;
   } catch (error) {
     console.error('Failed to get knowledge context:', error);
@@ -57,7 +65,7 @@ export async function getContextForAI(
  */
 export async function searchWithHybrid(
   query: string,
-  options: { topK?: number; categories?: string[] } = {}
+  options: { topK?: number; categories?: string[]; tags?: string[] } = {}
 ): Promise<SearchResult[]> {
   return hybridSearch(query, getEmbeddingKey(), options);
 }

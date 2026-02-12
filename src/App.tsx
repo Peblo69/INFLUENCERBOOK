@@ -35,6 +35,7 @@ import { MainContent } from "@/sections/MainContent";
 const importLibrary = () => import("@/sections/LibraryPage").then(m => ({ default: m.LibraryPage }));
 const importUploads = () => import("@/sections/UploadsPage").then(m => ({ default: m.UploadsPage }));
 const importSettings = () => import("@/sections/SettingsPage").then(m => ({ default: m.SettingsPage }));
+const importProfile = () => import("@/sections/ProfilePage").then(m => ({ default: m.ProfilePage }));
 const importBilling = () => import("@/sections/BillingPage").then(m => ({ default: m.BillingPage }));
 const importInvoices = () => import("@/sections/InvoicesPage").then(m => ({ default: m.InvoicesPage }));
 const importSocial = () => import("@/sections/SocialFeedPage").then(m => ({ default: m.SocialFeedPage }));
@@ -47,6 +48,7 @@ const importAdmin = () => import("@/sections/AdminPage").then(m => ({ default: m
 const LazyLibrary = lazy(importLibrary);
 const LazyUploads = lazy(importUploads);
 const LazySettings = lazy(importSettings);
+const LazyProfile = lazy(importProfile);
 const LazyBilling = lazy(importBilling);
 const LazyInvoices = lazy(importInvoices);
 const LazySocial = lazy(importSocial);
@@ -62,6 +64,7 @@ if (typeof window !== "undefined") {
     importLibrary();
     importUploads();
     importSettings();
+    importProfile();
     importBilling();
     importInvoices();
     importSocial();
@@ -99,9 +102,12 @@ const AppFrame = () => {
     "/admin",
   ]);
   const hideHeader = hideHeaderRoutes.has(location.pathname);
+  const frameClass = hideHeader
+    ? "box-border caret-transparent flex flex-col h-screen overflow-hidden"
+    : "box-border caret-transparent flex flex-col min-h-screen";
 
   return (
-    <div className="box-border caret-transparent flex flex-col min-h-[1000px]">
+    <div className={frameClass}>
       <div className="box-border caret-transparent flex flex-col grow">
         {!hideHeader && (
           <div className="box-border caret-transparent z-50">
@@ -304,6 +310,16 @@ const AppRoutes = () => {
             <ProtectedRoute>
               <Suspense fallback={<RouteLoading />}>
                 <LazySettings />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<RouteLoading />}>
+                <LazyProfile />
               </Suspense>
             </ProtectedRoute>
           }

@@ -28,11 +28,12 @@ export const InfluencersSidebar = () => {
   const navLinks = [
     { href: "/", label: "Home", icon: <HomeIcon /> },
     { href: "/assistant", label: "Assistant", icon: <ChatIcon /> },
-    { href: "/models", label: "Models", icon: <GridIcon /> },
-    { href: "/kiara-studio-labs", label: "Labs", icon: <FlaskIcon /> },
-    { href: "/images", label: "Images", icon: <ImageIcon /> },
-    { href: "/videos", label: "Video", icon: <VideoIcon /> },
+    { href: "/models", label: "Influencer Studio", icon: <GridIcon /> },
     { href: "/influencers", label: "Influencers", icon: <InfluencerIcon /> },
+    { href: "/videos", label: "Video", icon: <VideoIcon /> },
+    { href: "/kiara-studio-labs", label: "Labs", icon: <FlaskIcon /> },
+    { href: "/images", label: "Assets", icon: <ImageIcon /> },
+    ...(profile?.is_admin ? [{ href: "/admin", label: "Admin", icon: <AdminIcon /> }] : []),
   ];
 
   return (
@@ -255,5 +256,12 @@ const VideoIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="23 7 16 12 23 17 23 7" />
     <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+  </svg>
+);
+
+const AdminIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3 4 7v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V7z" />
+    <path d="m9 12 2 2 4-4" />
   </svg>
 );

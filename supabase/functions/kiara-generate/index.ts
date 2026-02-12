@@ -169,13 +169,16 @@ const applyGenerationLimits = (
   return next;
 };
 
-const pickImageExtension = (contentType: string | null) => {
+const pickMediaExtension = (contentType: string | null) => {
   if (!contentType) return "jpg";
+  if (contentType.includes("mp4") || contentType.includes("video/mp4")) return "mp4";
+  if (contentType.includes("webm") && contentType.includes("video")) return "webm";
   if (contentType.includes("png")) return "png";
   if (contentType.includes("webp")) return "webp";
   if (contentType.includes("jpeg") || contentType.includes("jpg")) return "jpg";
   return "jpg";
 };
+const pickImageExtension = pickMediaExtension;
 
 const extractImageUrls = (raw: any): string[] => {
   if (!raw) return [];
@@ -276,21 +279,33 @@ const buildRunninghubNodeInfoList = (
     .filter(Boolean) as RunninghubNodeInfo[];
 
   const promptNodeId = params.prompt_node_id ?? params.promptNodeId;
-  if (normalizedFromList.length === 0 && promptNodeId !== undefined) {
-    normalizedFromList.push({
-      nodeId: String(promptNodeId),
-      fieldName: String(params.prompt_field_name ?? params.promptFieldName ?? "text"),
-      fieldValue: prompt,
-    });
+  if (promptNodeId !== undefined) {
+    const promptFieldName = String(params.prompt_field_name ?? params.promptFieldName ?? "text");
+    const alreadyHasPrompt = normalizedFromList.some(
+      (n) => n.nodeId === String(promptNodeId) && n.fieldName === promptFieldName
+    );
+    if (!alreadyHasPrompt) {
+      normalizedFromList.push({
+        nodeId: String(promptNodeId),
+        fieldName: promptFieldName,
+        fieldValue: prompt,
+      });
+    }
   }
 
   const negativeNodeId = params.negative_prompt_node_id ?? params.negativePromptNodeId;
   if (negativePrompt && negativeNodeId !== undefined) {
-    normalizedFromList.push({
-      nodeId: String(negativeNodeId),
-      fieldName: String(params.negative_prompt_field_name ?? params.negativePromptFieldName ?? "text"),
-      fieldValue: negativePrompt,
-    });
+    const negFieldName = String(params.negative_prompt_field_name ?? params.negativePromptFieldName ?? "text");
+    const alreadyHasNeg = normalizedFromList.some(
+      (n) => n.nodeId === String(negativeNodeId) && n.fieldName === negFieldName
+    );
+    if (!alreadyHasNeg) {
+      normalizedFromList.push({
+        nodeId: String(negativeNodeId),
+        fieldName: negFieldName,
+        fieldValue: negativePrompt,
+      });
+    }
   }
 
   const referenceMappings = Array.isArray(params.reference_image_node_mappings)
@@ -751,6 +766,72 @@ const rehostImages = async (
   return { paths, signedUrls };
 };
 
+/** Rehost RunningHub/external outputs (images or videos) to Supabase storage */
+const rehostRunninghubOutputs = async (
+  supabase: any,
+  userId: string,
+  taskId: string,
+  urls: string[],
+  videoSubdir = "animate-x"
+): Promise<{ paths: string[]; signedUrls: string[] }> => {
+  const bucket = "generated-images";
+  const paths: string[] = [];
+  const signedUrls: string[] = [];
+
+  for (let i = 0; i < urls.length; i += 1) {
+    const url = urls[i];
+    if (!url) continue;
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch output (${response.status})`);
+    }
+
+    const contentType = response.headers.get("content-type");
+    const ext = pickMediaExtension(contentType);
+    const isVideo = ext === "mp4" || ext === "webm";
+    const arrayBuffer = await response.arrayBuffer();
+
+    let fileData = new Uint8Array(arrayBuffer);
+    // Only brand PNG images, skip for video
+    if (ext === "png") {
+      fileData = brandPngImage(fileData);
+    }
+
+    const subdir = isVideo ? videoSubdir : userId;
+    const filePath = `${subdir}/${taskId}/${Date.now()}-${i}.${ext}`;
+    const uploadMime = isVideo
+      ? (ext === "webm" ? "video/webm" : "video/mp4")
+      : (contentType || "image/jpeg");
+
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .upload(filePath, fileData, {
+        contentType: uploadMime,
+        cacheControl: "3600",
+        upsert: false,
+      });
+
+    if (error || !data?.path) {
+      throw new Error(`Failed to store output: ${error?.message || "unknown"}`);
+    }
+
+    paths.push(data.path);
+
+    const { data: signed, error: signedError } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(data.path, SIGNED_URL_TTL);
+
+    if (signedError || !signed?.signedUrl) {
+      throw new Error("Failed to create signed URL");
+    }
+
+    signedUrls.push(signed.signedUrl);
+  }
+
+  return { paths, signedUrls };
+};
+
 const selectFallbackModel = async (
   supabase: any,
   needsReferenceImages: boolean
@@ -1044,6 +1125,335 @@ serve(async (req) => {
   }
 
   const body = await req.json();
+
+  // ==================== ASYNC RUNNINGHUB ACTIONS ====================
+  // These actions enable frontend-driven polling for long-running workflows
+  // (e.g. video generation that exceeds edge function sync timeout)
+
+  const action = body.action as string | undefined;
+
+  if (action === "runninghub-create") {
+    try {
+      if (!RUNNINGHUB_API_KEY) throw new Error("RUNNINGHUB_API_KEY not configured");
+
+      const modelId = body.model_id;
+      if (!modelId) throw new Error("model_id is required");
+
+      const modelConfig = await getModelConfig(supabaseAdmin, modelId);
+      if (!modelConfig) throw new Error(`Model not found: ${modelId}`);
+      if (String(modelConfig.provider).toLowerCase() !== "runninghub") {
+        throw new Error("runninghub-create only supports RunningHub models");
+      }
+
+      const workflowId = modelConfig.provider_model_id;
+      if (!workflowId) throw new Error("Workflow ID not configured for this model");
+
+      const prompt = body.prompt || "";
+      const referenceImages: string[] = Array.isArray(body.image_urls) ? body.image_urls : [];
+      const negativePrompt = body.negative_prompt || "";
+
+      // Merge default_params with body params
+      const rawParams: Record<string, any> = {
+        ...(modelConfig.default_params || {}),
+        ...(body.params || {}),
+      };
+      // Also merge top-level nodeInfoList if present
+      if (body.nodeInfoList && !rawParams.nodeInfoList) {
+        rawParams.nodeInfoList = body.nodeInfoList;
+      }
+
+      const baseNodeInfoList = buildRunninghubNodeInfoList(
+        rawParams, prompt, negativePrompt, referenceImages
+      );
+
+      // Inject seed if provided
+      const seedNum = body.seed ?? (body.params?.seed);
+      if (seedNum !== undefined && seedNum !== null) {
+        const seedNodeId = rawParams.seed_node_id || rawParams.seedNodeId;
+        if (seedNodeId) {
+          baseNodeInfoList.push({ nodeId: String(seedNodeId), fieldName: "seed", fieldValue: String(seedNum) });
+        }
+      }
+
+      console.log("[kiara-generate] runninghub-create:", JSON.stringify({
+        model: modelId, workflow: workflowId, nodes: baseNodeInfoList.length,
+      }));
+
+      const createData = await runninghubApiRequest<any>("/task/openapi/create", {
+        workflowId: String(workflowId),
+        nodeInfoList: baseNodeInfoList,
+      }, 60000);
+
+      const taskId = createData?.taskId || createData?.task_id || createData?.id;
+      if (!taskId) throw new Error("RunningHub did not return task ID");
+
+      // Create job record for persistence
+      let jobId: string | null = null;
+      try {
+        jobId = await createJob(supabaseAdmin, user.id, modelId, prompt, prompt, negativePrompt, rawParams, referenceImages);
+        if (jobId) {
+          await supabaseAdmin.from("ai_generation_jobs").update({ fal_request_id: taskId }).eq("id", jobId);
+        }
+      } catch (e) { console.error("[kiara-generate] Job creation failed:", e); }
+
+      return new Response(
+        JSON.stringify({ success: true, task_id: taskId, job_id: jobId }),
+        { status: 200, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    } catch (err: any) {
+      console.error("[kiara-generate] runninghub-create error:", err);
+      return new Response(
+        JSON.stringify({ success: false, error: err.message }),
+        { status: 500, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    }
+  }
+
+  if (action === "runninghub-status") {
+    try {
+      if (!RUNNINGHUB_API_KEY) throw new Error("RUNNINGHUB_API_KEY not configured");
+      const taskId = body.task_id;
+      if (!taskId) throw new Error("task_id is required");
+
+      const statusData = await runninghubApiRequest<any>("/task/openapi/status", {
+        taskId: String(taskId),
+      }, 45000);
+
+      const status = normalizeRunninghubStatus(statusData);
+
+      return new Response(
+        JSON.stringify({ success: true, task_id: taskId, status }),
+        { status: 200, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    } catch (err: any) {
+      console.error("[kiara-generate] runninghub-status error:", err);
+      return new Response(
+        JSON.stringify({ success: false, error: err.message }),
+        { status: 500, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    }
+  }
+
+  if (action === "runninghub-outputs") {
+    try {
+      if (!RUNNINGHUB_API_KEY) throw new Error("RUNNINGHUB_API_KEY not configured");
+      const taskId = body.task_id;
+      if (!taskId) throw new Error("task_id is required");
+
+      const outputsData = await runninghubApiRequest<any>("/task/openapi/outputs", {
+        taskId: String(taskId),
+      }, 45000);
+
+      const rawUrls = extractRunninghubOutputUrls(outputsData);
+      if (rawUrls.length === 0) throw new Error("No outputs returned from RunningHub");
+
+      // Rehost to Supabase storage
+      const { paths, signedUrls } = await rehostRunninghubOutputs(
+        supabaseAdmin, user.id, String(taskId), rawUrls
+      );
+
+      // Update job if job_id provided
+      const jobId = body.job_id;
+      if (jobId) {
+        try {
+          await updateJobStatus(supabaseAdmin, jobId, "completed", undefined, undefined, undefined);
+          await storeOutputs(supabaseAdmin, jobId, paths, rawUrls, { task_id: taskId });
+        } catch (e) { console.error("[kiara-generate] Job update failed:", e); }
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, task_id: taskId, urls: signedUrls, storagePaths: paths }),
+        { status: 200, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    } catch (err: any) {
+      console.error("[kiara-generate] runninghub-outputs error:", err);
+      return new Response(
+        JSON.stringify({ success: false, error: err.message }),
+        { status: 500, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    }
+  }
+
+  // ==================== FAL.AI QUEUE ACTIONS ====================
+  // Submit → poll status → fetch result pattern for fal.ai queue-based models
+  // (e.g. Grok Imagine Video via xai/grok-imagine-video/image-to-video)
+
+  if (action === "fal-submit") {
+    try {
+      if (!FAL_API_KEY) throw new Error("FAL_API_KEY not configured");
+
+      const modelId = body.model_id;
+      if (!modelId) throw new Error("model_id is required");
+
+      const modelConfig = await getModelConfig(supabaseAdmin, modelId);
+      if (!modelConfig) throw new Error(`Model not found: ${modelId}`);
+
+      const endpoint = modelConfig.provider_model_id;
+      if (!endpoint) throw new Error("provider_model_id not configured for this model");
+
+      const prompt = body.prompt || "";
+      const imageUrl = body.image_url as string | undefined;
+      const videoUrl = body.video_url as string | undefined;
+
+      // Validate inputs based on endpoint type
+      const isImageToVideo = endpoint.includes("image-to-video");
+      const isEditVideo = endpoint.includes("edit-video");
+      if (isImageToVideo && !imageUrl) throw new Error("image_url is required for image-to-video");
+      if (isEditVideo && !videoUrl) throw new Error("video_url is required for edit-video");
+
+      // Build fal.ai request body — only include fields relevant to the endpoint
+      const falBody: Record<string, any> = { prompt };
+      if (imageUrl) falBody.image_url = imageUrl;
+      if (videoUrl) falBody.video_url = videoUrl;
+      if (body.duration !== undefined) falBody.duration = body.duration;
+      if (body.aspect_ratio !== undefined) falBody.aspect_ratio = body.aspect_ratio;
+      if (body.resolution !== undefined) falBody.resolution = body.resolution;
+
+      console.log("[kiara-generate] fal-submit:", JSON.stringify({ model: modelId, endpoint }));
+
+      const response = await withTimeout(`https://queue.fal.run/${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Key ${FAL_API_KEY}`,
+        },
+        body: JSON.stringify(falBody),
+      }, 60000);
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || `fal.ai submit failed (${response.status})`);
+      }
+
+      const requestId = data.request_id;
+      if (!requestId) throw new Error("fal.ai did not return request_id");
+
+      // Create job record
+      const referenceUrls = [imageUrl, videoUrl].filter(Boolean) as string[];
+      let jobId: string | null = null;
+      try {
+        jobId = await createJob(supabaseAdmin, user.id, modelId, prompt, prompt, undefined, {
+          image_url: imageUrl, video_url: videoUrl, duration: body.duration, aspect_ratio: body.aspect_ratio, resolution: body.resolution,
+        }, referenceUrls);
+        if (jobId) {
+          await supabaseAdmin.from("ai_generation_jobs").update({ fal_request_id: requestId }).eq("id", jobId);
+        }
+      } catch (e) { console.error("[kiara-generate] Job creation failed:", e); }
+
+      return new Response(
+        JSON.stringify({ success: true, request_id: requestId, job_id: jobId, endpoint }),
+        { status: 200, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    } catch (err: any) {
+      console.error("[kiara-generate] fal-submit error:", err);
+      return new Response(
+        JSON.stringify({ success: false, error: err.message }),
+        { status: 500, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    }
+  }
+
+  if (action === "fal-status") {
+    try {
+      if (!FAL_API_KEY) throw new Error("FAL_API_KEY not configured");
+      const requestId = body.request_id;
+      if (!requestId) throw new Error("request_id is required");
+
+      // Use endpoint from body or default
+      const endpoint = body.endpoint || "xai/grok-imagine-video/image-to-video";
+
+      const response = await withTimeout(
+        `https://queue.fal.run/${endpoint}/requests/${requestId}/status`,
+        {
+          method: "GET",
+          headers: { "Authorization": `Key ${FAL_API_KEY}` },
+        },
+        30000
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || `fal.ai status check failed (${response.status})`);
+      }
+
+      // fal.ai returns { status: "IN_QUEUE" | "IN_PROGRESS" | "COMPLETED" | "FAILED" }
+      return new Response(
+        JSON.stringify({ success: true, request_id: requestId, status: data.status, queue_position: data.queue_position }),
+        { status: 200, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    } catch (err: any) {
+      console.error("[kiara-generate] fal-status error:", err);
+      return new Response(
+        JSON.stringify({ success: false, error: err.message }),
+        { status: 500, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    }
+  }
+
+  if (action === "fal-result") {
+    try {
+      if (!FAL_API_KEY) throw new Error("FAL_API_KEY not configured");
+      const requestId = body.request_id;
+      if (!requestId) throw new Error("request_id is required");
+
+      const endpoint = body.endpoint || "xai/grok-imagine-video/image-to-video";
+
+      const response = await withTimeout(
+        `https://queue.fal.run/${endpoint}/requests/${requestId}`,
+        {
+          method: "GET",
+          headers: { "Authorization": `Key ${FAL_API_KEY}` },
+        },
+        60000
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || `fal.ai result fetch failed (${response.status})`);
+      }
+
+      // Extract video URL — fal.ai returns { video: { url, width, height, duration, fps } }
+      const videoUrl = data.video?.url;
+      if (!videoUrl) throw new Error("No video URL in fal.ai result");
+
+      // Rehost to Supabase storage
+      const { paths, signedUrls } = await rehostRunninghubOutputs(
+        supabaseAdmin, user.id, String(requestId), [videoUrl], "grok-video"
+      );
+
+      // Update job if job_id provided
+      const jobId = body.job_id;
+      if (jobId) {
+        try {
+          await updateJobStatus(supabaseAdmin, jobId, "completed");
+          await storeOutputs(supabaseAdmin, jobId, paths, [videoUrl], {
+            request_id: requestId,
+            video_meta: data.video,
+          });
+        } catch (e) { console.error("[kiara-generate] Job update failed:", e); }
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          request_id: requestId,
+          urls: signedUrls,
+          storagePaths: paths,
+          video_meta: data.video,
+        }),
+        { status: 200, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    } catch (err: any) {
+      console.error("[kiara-generate] fal-result error:", err);
+      return new Response(
+        JSON.stringify({ success: false, error: err.message }),
+        { status: 500, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
+    }
+  }
+
+  // ==================== STANDARD GENERATION FLOW ====================
+
   let prompt = body.prompt;
   const referenceImages: string[] = Array.isArray(body.reference_image_urls)
     ? body.reference_image_urls
@@ -1149,6 +1559,9 @@ serve(async (req) => {
   if (generationMeta.num_images !== undefined) mergedParams.num_images = generationMeta.num_images;
   if (generationMeta.seed !== undefined) mergedParams.seed = generationMeta.seed;
   if (generationMeta.output_format) mergedParams.output_format = generationMeta.output_format;
+  if (typeof body.client_request_id === "string" && body.client_request_id.trim().length > 0) {
+    mergedParams.client_request_id = body.client_request_id.trim();
+  }
 
   let jobId: string | null = null;
 
@@ -1385,6 +1798,41 @@ serve(async (req) => {
 
       applyReferenceImages(requestBody, modelConfig, referenceImages);
 
+      // Seedream models use `image_size` enum instead of `aspect_ratio`
+      const isSeedreamEndpoint = endpoint && endpoint.includes("seedream");
+      if (isSeedreamEndpoint) {
+        // Handle resolution → image_size for Seedream (2K/4K quality toggle)
+        const resolution = requestBody.resolution as string | undefined;
+        if (resolution === "4k" && !requestBody.image_size) {
+          requestBody.image_size = "auto_4K";
+        } else if (resolution === "2k" && !requestBody.image_size) {
+          requestBody.image_size = "auto_2K";
+        }
+
+        // Map aspect_ratio → image_size enum if not already set
+        if (requestBody.aspect_ratio && !requestBody.image_size) {
+          const ratioToImageSize: Record<string, string> = {
+            "1:1": "square_hd",
+            "16:9": "landscape_16_9",
+            "9:16": "portrait_16_9",
+            "4:3": "landscape_4_3",
+            "3:4": "portrait_4_3",
+          };
+          const mapped = ratioToImageSize[requestBody.aspect_ratio];
+          if (mapped) {
+            requestBody.image_size = mapped;
+          }
+        }
+        delete requestBody.aspect_ratio;
+      }
+
+      // Clean up non-fal keys
+      delete requestBody.resolution;
+      delete requestBody.client_request_id;
+
+      // Always disable fal.ai content safety checker
+      requestBody.enable_safety_checker = false;
+
       const response = await withTimeout(`${FAL_BASE_URL}/${endpoint}`, {
         method: "POST",
         headers: {
@@ -1397,7 +1845,11 @@ serve(async (req) => {
       rawResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(rawResponse.detail || rawResponse.message || `Model request failed (${response.status})`);
+        const detail = rawResponse.detail;
+        const errMsg = typeof detail === "string" ? detail
+          : Array.isArray(detail) ? detail.map((d: any) => d.msg || JSON.stringify(d)).join("; ")
+          : rawResponse.message || `Model request failed (${response.status})`;
+        throw new Error(errMsg);
       }
 
       // Extract images from response (different models return differently)
@@ -1437,13 +1889,25 @@ serve(async (req) => {
     );
 
   } catch (error: any) {
+    const errMsg = error?.message || "Generation failed";
+
     // Update job with error
     if (jobId) {
-      await updateJobStatus(supabaseAdmin, jobId, "failed", error?.message);
+      await updateJobStatus(supabaseAdmin, jobId, "failed", errMsg);
+    }
+
+    // If the provider flagged the content (NSFW / content policy), return 200 with nsfw flag
+    // so the frontend can show a proper NSFW card instead of a generic error toast
+    const isContentFlagged = /content.?(checker|moderation|filter|flagged|policy|blocked|unsafe|violation)|nsfw|inappropriate|safety.?(system|filter|checker)|sexually.?explicit|content policy/i.test(errMsg);
+    if (isContentFlagged) {
+      return new Response(
+        JSON.stringify({ success: false, nsfw: true, images: [], message: errMsg, job_id: jobId }),
+        { status: 200, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(
-      JSON.stringify({ error: error?.message || "Generation failed", job_id: jobId }),
+      JSON.stringify({ error: errMsg, job_id: jobId }),
       { status: 500, headers: { ...buildCorsHeaders(origin), "Content-Type": "application/json" } }
     );
   }

@@ -1,38 +1,24 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { Infinity, PanelLeft, ChevronRight, Settings, LogOut } from "lucide-react";
+import { Infinity, PanelLeft, ChevronRight, Settings, LogOut, User } from "lucide-react";
 
 export const ModelsSidebar = () => {
   const { user, profile, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const [showMenu, setShowMenu] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowMenu(false);
-      }
-    };
-    if (showMenu) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showMenu]);
 
   const pathname = location.pathname;
 
   const navLinks = [
     { href: "/", label: "Home", icon: <HomeIcon /> },
     { href: "/assistant", label: "Assistant", icon: <ChatIcon /> },
-    { href: "/models", label: "Models", icon: <GridIcon /> },
-    { href: "/kiara-studio-labs", label: "Labs", icon: <FlaskIcon /> },
-    { href: "/images", label: "Images", icon: <ImageIcon /> },
-    { href: "/videos", label: "Video", icon: <VideoIcon /> },
+    { href: "/models", label: "Influencer Studio", icon: <GridIcon /> },
     { href: "/influencers", label: "Influencers", icon: <InfluencerIcon /> },
+    { href: "/videos", label: "Video", icon: <VideoIcon /> },
+    { href: "/kiara-studio-labs", label: "Labs", icon: <FlaskIcon /> },
+    { href: "/images", label: "Assets", icon: <ImageIcon /> },
     ...(profile?.is_admin ? [{ href: "/admin", label: "Admin", icon: <AdminIcon /> }] : []),
   ];
 
@@ -45,7 +31,7 @@ export const ModelsSidebar = () => {
 
   return (
     <aside 
-      className={`flex flex-col h-screen bg-black/60 backdrop-blur-xl border-r border-white/5 z-50 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+      className={`flex flex-col h-screen flex-shrink-0 bg-black/60 backdrop-blur-xl border-r border-white/5 z-50 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
         isCollapsed ? 'w-20' : 'w-[280px]'
       }`}
     >
@@ -116,7 +102,7 @@ export const ModelsSidebar = () => {
       </nav>
 
       {/* User / Footer Area — always pinned to bottom */}
-      <div className="flex-shrink-0 p-3 border-t border-white/[0.04] space-y-1" ref={menuRef}>
+      <div className="flex-shrink-0 p-3 border-t border-white/[0.04] space-y-2">
         
         {isCollapsed && (
           <div className="flex justify-center mb-3">
@@ -132,32 +118,8 @@ export const ModelsSidebar = () => {
 
         {user ? (
           <>
-            <div 
-              onClick={() => setShowMenu(!showMenu)}
-              className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer transition-all duration-200 relative group ${isCollapsed ? 'justify-center' : ''} ${showMenu ? 'bg-white/[0.04]' : 'hover:bg-white/[0.03]'}`}
-            >
-              {showMenu && !isCollapsed && (
-                <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 bg-black/95 border border-white/[0.06] rounded-xl shadow-2xl overflow-hidden z-[60] backdrop-blur-xl">
-                  <div className="p-1.5 space-y-0.5">
-                    {profile?.is_admin && (
-                      <button onClick={() => navigate("/admin")} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] text-blue-300/80 hover:text-blue-200 hover:bg-blue-500/[0.1] rounded-lg transition-colors">
-                        <AdminIcon />
-                        <span className="font-normal">Admin Panel</span>
-                      </button>
-                    )}
-                    <button onClick={() => navigate("/settings")} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] text-white/50 hover:text-white/80 hover:bg-white/[0.05] rounded-lg transition-colors">
-                      <Settings size={14} />
-                      <span className="font-normal">Settings</span>
-                    </button>
-                    <div className="h-px bg-white/[0.04] mx-2 my-1"></div>
-                    <button onClick={() => signOut()} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] text-red-400/60 hover:text-red-400/90 hover:bg-red-500/[0.06] rounded-lg transition-colors">
-                      <LogOut size={14} />
-                      <span className="font-normal">Log out</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
+            {/* User Display */}
+            <div className={`flex items-center gap-3 p-2 rounded-xl ${isCollapsed ? 'justify-center' : ''}`}>
               <div className="w-8 h-8 min-w-[32px] rounded-full bg-white/[0.08] border border-white/[0.08] flex items-center justify-center">
                 <span className="text-[11px] font-medium text-white/70">
                   {profile?.display_name?.[0] || profile?.username?.[0] || user.email?.[0] || "U"}
@@ -172,6 +134,48 @@ export const ModelsSidebar = () => {
                   {profile?.is_pro ? "Pro Plan" : "Free Plan"}
                 </p>
               </div>
+            </div>
+
+            {/* Profile & Settings Buttons */}
+            <div className={`space-y-1 ${isCollapsed ? 'space-y-2' : ''}`}>
+              {/* Profile Button */}
+              <button 
+                onClick={() => navigate("/profile")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 text-white/60 hover:text-white/90 hover:bg-white/[0.05] group ${isCollapsed ? 'justify-center px-0' : ''}`}
+                title={isCollapsed ? "Profile" : undefined}
+              >
+                <User size={16} className="group-hover:scale-110 transition-transform" />
+                <span className={`text-[12px] font-normal transition-all duration-300 ${isCollapsed ? 'w-0 opacity-0 hidden' : 'w-auto opacity-100'}`}>
+                  Profile
+                </span>
+              </button>
+
+              {/* Settings Button */}
+              <button 
+                onClick={() => navigate("/settings")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 text-white/60 hover:text-white/90 hover:bg-white/[0.05] group ${isCollapsed ? 'justify-center px-0' : ''}`}
+                title={isCollapsed ? "Settings" : undefined}
+              >
+                <Settings size={16} className="group-hover:scale-110 transition-transform" />
+                <span className={`text-[12px] font-normal transition-all duration-300 ${isCollapsed ? 'w-0 opacity-0 hidden' : 'w-auto opacity-100'}`}>
+                  Settings
+                </span>
+              </button>
+
+              {/* Divider */}
+              {!isCollapsed && <div className="h-px bg-white/[0.04] my-1"></div>}
+
+              {/* Logout Button */}
+              <button 
+                onClick={() => signOut()}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 text-red-400/60 hover:text-red-400/90 hover:bg-red-500/[0.06] group ${isCollapsed ? 'justify-center px-0' : ''}`}
+                title={isCollapsed ? "Log out" : undefined}
+              >
+                <LogOut size={16} className="group-hover:scale-110 transition-transform" />
+                <span className={`text-[12px] font-normal transition-all duration-300 ${isCollapsed ? 'w-0 opacity-0 hidden' : 'w-auto opacity-100'}`}>
+                  Log out
+                </span>
+              </button>
             </div>
           </>
         ) : (

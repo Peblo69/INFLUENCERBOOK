@@ -31,7 +31,7 @@ const buildCorsHeaders = (origin: string) => ({
   "Access-Control-Allow-Origin": allowedOrigins.length === 0 ? "*" : origin || "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Expose-Headers": "x-kiara-memory-strategy, x-kiara-memory-count, x-kiara-memory-debug",
+  "Access-Control-Expose-Headers": "x-kiara-memory-strategy, x-kiara-memory-count, x-kiara-memory-debug, x-kiara-server-timing",
 });
 
 const RUNWAY_ACTIONS = new Set([
@@ -66,6 +66,7 @@ const copyUpstreamHeaders = (upstream: Headers, origin: string): Headers => {
     "x-kiara-memory-strategy",
     "x-kiara-memory-count",
     "x-kiara-memory-debug",
+    "x-kiara-server-timing",
   ]) {
     const value = upstream.get(key);
     if (value) headers.set(key, value);
@@ -132,6 +133,13 @@ serve(async (req) => {
       return json(400, { error: "Unsupported assistant action" }, origin);
     }
     targetFunction = "kiara-grok";
+    targetBody = { ...payload, action: "chat" };
+  } else if (route === "xai") {
+    if (!action) {
+      return json(400, { error: "Missing xai action" }, origin);
+    }
+    targetFunction = "kiara-grok";
+    targetBody = { ...payload, action };
   } else {
     return json(400, { error: "Unsupported route" }, origin);
   }

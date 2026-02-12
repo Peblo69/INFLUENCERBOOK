@@ -222,7 +222,6 @@ export const AssistantPage = () => {
           onNewChat={handleNewChat}
           onRenameConversation={handleRenameConversation}
           onDeleteConversation={handleDeleteConversation}
-          onOpenSettings={() => setActiveModal("settings")}
           onOpenUpgrade={() => setActiveModal("upgrade")}
         />
       </div>

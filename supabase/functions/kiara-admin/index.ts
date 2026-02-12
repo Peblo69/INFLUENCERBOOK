@@ -318,6 +318,77 @@ serve(async (req) => {
       });
     }
 
+    if (action === "assistant-metrics") {
+      const hours = toBoundedInteger((body as Record<string, unknown>).hours, 24, 1, 24 * 30);
+      const limit = toBoundedInteger((body as Record<string, unknown>).limit, 250, 10, 1000);
+      const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+      const { data, error } = await supabase
+        .from("ai_assistant_request_metrics")
+        .select(
+          "id, user_id, conversation_id, request_mode, api_mode, model, web_search_enabled, memory_enabled, memory_strategy, memory_retrieved_count, used_responses_api, request_chars, response_chars, tool_count, auth_ms, profile_ms, memory_ms, upstream_ms, total_ms, status, http_status, error_message, metadata, created_at"
+        )
+        .gte("created_at", sinceIso)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        console.error("[kiara-admin] assistant-metrics query failed:", error);
+        return json(origin, 500, { error: "Failed to fetch assistant metrics" });
+      }
+
+      const rows = data || [];
+      const totals = rows.map((r: any) => Math.max(0, toFiniteInteger(r.total_ms, 0))).sort((a: number, b: number) => a - b);
+      const percentile = (arr: number[], pct: number) => {
+        if (!arr.length) return 0;
+        const idx = Math.min(arr.length - 1, Math.max(0, Math.ceil((pct / 100) * arr.length) - 1));
+        return arr[idx];
+      };
+
+      const successful = rows.filter((r: any) => r.status === "success");
+      const upstreamErrors = rows.filter((r: any) => r.status === "upstream_error");
+      const otherErrors = rows.filter((r: any) => r.status === "error");
+      const webSearchCount = rows.filter((r: any) => r.web_search_enabled === true).length;
+      const responsesApiCount = rows.filter((r: any) => r.api_mode === "responses").length;
+      const memoryTimeoutCount = rows.filter((r: any) => String(r.memory_strategy || "") === "timeout").length;
+
+      const avgTotalMs = rows.length
+        ? Math.round(rows.reduce((sum: number, row: any) => sum + Math.max(0, toFiniteInteger(row.total_ms, 0)), 0) / rows.length)
+        : 0;
+
+      const userIds = uniq(rows.map((r: any) => r.user_id).filter(Boolean));
+      let profilesById: Record<string, any> = {};
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, email, display_name, username")
+          .in("id", userIds);
+        profilesById = Object.fromEntries((profiles || []).map((profile: any) => [profile.id, profile]));
+      }
+
+      return json(origin, 200, {
+        success: true,
+        window_hours: hours,
+        metrics: {
+          total_requests: rows.length,
+          success_count: successful.length,
+          upstream_error_count: upstreamErrors.length,
+          error_count: otherErrors.length,
+          success_rate: rows.length ? Number(((successful.length / rows.length) * 100).toFixed(2)) : 0,
+          p50_total_ms: percentile(totals, 50),
+          p95_total_ms: percentile(totals, 95),
+          avg_total_ms: avgTotalMs,
+          web_search_rate: rows.length ? Number(((webSearchCount / rows.length) * 100).toFixed(2)) : 0,
+          responses_api_rate: rows.length ? Number(((responsesApiCount / rows.length) * 100).toFixed(2)) : 0,
+          memory_timeout_count: memoryTimeoutCount,
+        },
+        recent: rows.map((row: any) => ({
+          ...row,
+          user: profilesById[row.user_id] || null,
+        })),
+      });
+    }
+
     if (action === "user-detail") {
       const targetUserId = String((body as Record<string, unknown>).user_id || "").trim();
       if (!targetUserId) {

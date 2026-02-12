@@ -394,13 +394,32 @@ export async function executeToolCall(
           };
         }
 
-        // Basic comparison (placeholder)
-        const comparison = imageIndices.map((idx: number) => ({
-          index: idx,
-          fileName: context.uploadedFiles[idx].name,
-          fileSize: context.uploadedFiles[idx].size,
-          score: Math.random() * 100 // Placeholder
-        }));
+        // Deterministic metadata-based scoring to avoid random recommendations.
+        const comparison = imageIndices
+          .map((idx: number) => {
+            const file = context.uploadedFiles[idx];
+            const sizeMb = file.size / (1024 * 1024);
+            const mime = (file.type || "").toLowerCase();
+
+            const sizeScore = Math.min(60, sizeMb * 25);
+            const formatScore = mime.includes("png")
+              ? 20
+              : mime.includes("webp")
+              ? 18
+              : mime.includes("jpeg") || mime.includes("jpg")
+              ? 15
+              : 10;
+            const typeBonus = comparisonType === "quality" ? 12 : comparisonType === "style" ? 8 : 6;
+            const score = Math.max(0, Math.min(100, Math.round(sizeScore + formatScore + typeBonus)));
+
+            return {
+              index: idx,
+              fileName: file.name,
+              fileSize: file.size,
+              score,
+            };
+          })
+          .sort((a, b) => b.score - a.score);
 
         console.log(`🔍 [COMPARE] Comparing ${imageIndices.length} images`);
 
@@ -409,7 +428,7 @@ export async function executeToolCall(
           result: {
             comparisonType,
             images: comparison,
-            recommendation: `Image ${comparison[0].index} appears best for ${comparisonType}`
+            recommendation: `Image ${comparison[0].index} appears best for ${comparisonType} (metadata heuristic scoring).`
           },
           consoleLog: `🔍 [COMPARE] ${imageIndices.length} images compared`
         };
@@ -428,10 +447,11 @@ export async function executeToolCall(
           referenceImageIndices = [],
           model_id,
           aspectRatio,
+          quality,
           numImages = numberOfImages
         } = params;
 
-        // Use model_id if provided, otherwise try to auto-select from registry
+        // Use model_id if provided, otherwise smart auto-select
         let selectedModelId: string | undefined = model_id;
         const size = userSize; // Size now determined by settings or aspect ratio
 
@@ -444,7 +464,7 @@ export async function executeToolCall(
           return {
             success: false,
             result: null,
-            error: `Invalid reference image indices: ${invalidIndices.join(", ")}`,
+            error: `Invalid reference image indices: ${invalidIndices.join(", ")}. You have ${context.uploadedFiles.length} uploaded image(s) (indices 0-${context.uploadedFiles.length - 1}). Try again with valid indices.`,
             consoleLog: `❌ [GENERATE] Invalid indices`
           };
         }
@@ -452,14 +472,31 @@ export async function executeToolCall(
         // Get reference images
         const referenceFiles = referenceImageIndices.map((idx: number) => context.uploadedFiles[idx]);
 
+        // ── Smart model auto-selection ──
         if (!selectedModelId) {
-          try {
-            const capability = referenceFiles.length > 0 ? "image-to-image" : "text-to-image";
-            const modelResponse = await listModels(capability);
-            selectedModelId = modelResponse.models?.[0]?.model_id;
-          } catch (error) {
-            console.warn("⚠️ [MODEL SELECT] Failed to auto-select model:", error);
+          const hasRefs = referenceFiles.length > 0;
+          if (hasRefs) {
+            // With reference images → best edit model for face preservation
+            selectedModelId = "kiara-grok-image";
+            console.log(`🧠 [AUTO-SELECT] Reference images detected → kiara-grok-image (best face preservation)`);
+          } else {
+            // No references → best photorealistic text-to-image
+            selectedModelId = "kiara-grok-imagine";
+            console.log(`🧠 [AUTO-SELECT] Text-to-image → kiara-grok-imagine (best photorealism)`);
           }
+        }
+
+        // ── Quality → resolution mapping per model ──
+        let resolvedQuality: string | undefined;
+        if (quality && selectedModelId) {
+          if (selectedModelId.includes("seedream")) {
+            resolvedQuality = quality === "4k" ? "4k" : quality === "hd" ? "2k" : undefined;
+            console.log(`⚙️ [QUALITY] Seedream quality mapping: ${quality} → resolution=${resolvedQuality || "default"}`);
+          } else if (selectedModelId === "kiara-z-max") {
+            resolvedQuality = quality === "4k" || quality === "hd" ? "2k" : "1k";
+            console.log(`⚙️ [QUALITY] Z MAX quality mapping: ${quality} → resolution=${resolvedQuality}`);
+          }
+          // Grok Imagine / Grok Image don't have quality params — ignored
         }
 
         const useModelId = !!selectedModelId;
@@ -557,6 +594,7 @@ export async function executeToolCall(
                 referenceImages: referenceUrls.length > 0 ? referenceUrls : undefined,
                 aspectRatio: aspectRatio,
                 numImages: 1, // Generate one at a time for parallel batching
+                ...(resolvedQuality ? { params: { resolution: resolvedQuality } } : {}),
               }).then(result => ({
                 result,
                 batchIndex: i + 1
@@ -909,43 +947,7 @@ export async function executeToolCall(
         };
       }
 
-      // ==================== RESULT ANALYSIS TOOLS ====================
-
-      case "analyzeGeneratedResult": {
-        const { generationId, checkFor = ["quality", "prompt_match", "artifacts"] } = params;
-
-        console.log(`🔍 [ANALYZE RESULT] Checking generation ${generationId}`);
-
-        // TODO: Use vision model to analyze generated image
-        const analysis = {
-          generationId,
-          quality: "Good (placeholder)",
-          promptMatch: 85,
-          issues: [],
-          recommendation: "Looks good!"
-        };
-
-        return {
-          success: true,
-          result: analysis,
-          consoleLog: `🔍 [ANALYZE RESULT] Generation analyzed`
-        };
-      }
-
-      // ==================== USER INTERACTION TOOLS ====================
-
-      case "showImageInStudio": {
-        const { imageId, autoSwitch = false } = params;
-
-        console.log(`🖼️ [SHOW] Displaying image ${imageId}`);
-
-        // TODO: Implement image display in studio
-        return {
-          success: true,
-          result: { displayed: true, imageId },
-          consoleLog: `🖼️ [SHOW] Image displayed`
-        };
-      }
+      // ==================== HISTORY & SETTINGS TOOLS ====================
 
       case "getGenerationHistory": {
         const { limit = 10 } = params;

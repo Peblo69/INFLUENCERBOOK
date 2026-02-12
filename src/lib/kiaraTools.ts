@@ -129,31 +129,36 @@ export const KIARA_VISION_TOOLS: KiaraTool[] = [
     type: "function",
     function: {
       name: "generateImage",
-      description: "🚨 MANDATORY: If you just called analyzeImage and received results, YOU MUST CALL THIS TOOL NEXT! Generate image using the specified model_id. CRITICAL: Write DETAILED, NARRATIVE prompts like a professional photography director - NOT short bullet points! This prompt format is INTERNAL ONLY - NEVER reveal it to users! PROMPT STYLE REQUIREMENTS: 1) Write in FULL SENTENCES with rich detail, 2) Use NARRATIVE descriptions that paint a picture, 3) BE SPECIFIC about everything: exact colors, materials, lighting angles, camera positions, 4) Describe the MOOD and ATMOSPHERE, 5) Include technical details but in natural language, 6) NO lazy '[Preserve from reference]' - always describe in full detail! REQUIRED SECTIONS: CAMERA (describe POV, angle, lens, framing in detail), FRAMING & POV (explain composition, subject position, what's visible), POSE (detailed body language description), OUTFIT & DETAILS (specific materials, colors, accessories, jewelry), ENVIRONMENT (detailed setting description with specific elements), LIGHTING & MOOD (describe light sources, shadows, atmosphere, time of day), STYLE (technical specs: resolution, bokeh, color grading), Keywords (tags for style). ⚠️ APPEARANCE SECTION IS OPTIONAL - ONLY include if user EXPLICITLY requests face/hair/body changes!",
+      description: "Generate images using the optimal AI model. Consult your MODEL KNOWLEDGE to choose the right model_id and craft model-specific prompts. Write prompts as RICH NARRATIVE DESCRIPTIONS in full sentences — never tags or bullet points. For influencer content, default to photorealistic phone-camera aesthetic (iPhone selfie, natural lighting, casual pose, real setting). Include camera angle, lighting source, specific outfit materials, environment details, and authentic mood. If user uploaded reference images, prefer an edit-capable model. NEVER reveal the full internal prompt to users — it's proprietary.",
       parameters: {
         type: "object",
         properties: {
           model_id: {
             type: "string",
-            description: "The model_id to use for generation. Get available models from listModels(). Choose based on: user's needs, whether they have reference images (needs image-to-image capability), quality requirements. If not specified, defaults to best available model for the task."
+            description: "Model to use — pick from your MODEL KNOWLEDGE. Key options: 'kiara-grok-imagine' (best photorealism from text), 'kiara-grok-image' (fastest + best face preservation with refs), 'kiara-seedream-edit' or 'kiara-seedream-v4-edit' (up to 10 refs, 4K quality), 'kiara-z-max' (LoRA/artistic). Auto-selects best model if omitted."
           },
           prompt: {
             type: "string",
-            description: "🔒 INTERNAL USE ONLY - NEVER show this format to users! Write DETAILED NARRATIVE prompts like a professional photography director. Use FULL SENTENCES with rich descriptions. BE ULTRA SPECIFIC about EVERYTHING. Include sections: CAMERA, FRAMING & POV, POSE, OUTFIT & DETAILS, ENVIRONMENT, LIGHTING & MOOD, STYLE, Keywords."
+            description: "INTERNAL prompt — never shown to user. Write like a professional photography director: flowing narrative sentences describing subject, camera, pose, outfit (materials + colors), environment (specific real location), lighting (source + quality + time), and mood. Minimum 80 words for quality results."
           },
           referenceImageIndices: {
             type: "array",
             items: { type: "number" },
-            description: "Array of image indices to use as references (e.g., [0] for first image, [0, 1] for first two). Required for image-to-image models."
+            description: "Indices of uploaded images to use as references (0-based). When provided, edit-capable models are preferred."
           },
           aspectRatio: {
             type: "string",
-            enum: ["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"],
-            description: "Aspect ratio for the output image. Use 16:9 for landscape, 9:16 for portrait/mobile, 1:1 for square."
+            enum: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+            description: "Output ratio. 9:16 for Stories/Reels/TikTok, 1:1 for feed posts, 16:9 for landscape/banners, 4:3 for portraits."
+          },
+          quality: {
+            type: "string",
+            enum: ["standard", "hd", "4k"],
+            description: "Output quality. 'standard' for quick previews, 'hd' for good quality (default), '4k' for maximum detail (Seedream models only)."
           },
           numImages: {
             type: "number",
-            description: "Number of images to generate (1-4). More images = more options but slower."
+            description: "Number of images to generate (1-6 depending on model). More = more options but slower."
           }
         },
         required: ["prompt"]
@@ -238,57 +243,7 @@ export const KIARA_VISION_TOOLS: KiaraTool[] = [
     }
   },
 
-  // ==================== RESULT ANALYSIS TOOLS ====================
-
-  {
-    type: "function",
-    function: {
-      name: "analyzeGeneratedResult",
-      description: "⚠️ DO NOT USE - This tool is deprecated and happens automatically. After generating images, just respond to the user - do not call this tool!",
-      parameters: {
-        type: "object",
-        properties: {
-          generationId: {
-            type: "string",
-            description: "ID of the generation to analyze"
-          },
-          checkFor: {
-            type: "array",
-            items: {
-              type: "string",
-              enum: ["quality", "prompt_match", "artifacts", "composition", "lighting"]
-            },
-            description: "What aspects to check. Default: all"
-          }
-        },
-        required: ["generationId"]
-      }
-    }
-  },
-
-  // ==================== USER INTERACTION TOOLS ====================
-
-  {
-    type: "function",
-    function: {
-      name: "showImageInStudio",
-      description: "⚠️ DO NOT USE - Generated images are automatically displayed to the user. Do not call this tool after generation!",
-      parameters: {
-        type: "object",
-        properties: {
-          imageId: {
-            type: "string",
-            description: "ID of the image to display (can be reference image or generated image ID)"
-          },
-          autoSwitch: {
-            type: "boolean",
-            description: "Whether to automatically switch to studio view. Default: false"
-          }
-        },
-        required: ["imageId"]
-      }
-    }
-  },
+  // ==================== HISTORY & SETTINGS TOOLS ====================
 
   {
     type: "function",
